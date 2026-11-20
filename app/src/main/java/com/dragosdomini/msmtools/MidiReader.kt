@@ -41,6 +41,13 @@ object MidiReader {
         val tick: Long
     )
 
+    private data class TrackMetadata(
+        val tempo: Int?,
+        val numerator: Int?,
+        val denominator: Int?,
+        val name: String
+    )
+
     private data class TrackResult(
         val name: String,
         val program: Int,
@@ -61,6 +68,7 @@ object MidiReader {
         }
 
         val headerLength = input.readInt()
+
         if (headerLength < 6 || headerLength > bytes.size) {
             throw IOException("Invalid MIDI header.")
         }
@@ -69,8 +77,12 @@ object MidiReader {
         val trackCount = input.readUnsignedShort()
         val division = input.readUnsignedShort()
 
-        if (format != 1 && format != 0) {
+        if (format != 0 && format != 1) {
             throw IOException("Only MIDI Format 0 and Format 1 are supported.")
+        }
+
+        if (format == 0 && trackCount != 1) {
+            throw IOException("Invalid Format 0 MIDI: expected one track.")
         }
 
         if (division and 0x8000 != 0) {
@@ -93,6 +105,10 @@ object MidiReader {
         val parsedTracks = mutableListOf<MidiTrackData>()
 
         repeat(trackCount) { trackIndex ->
+            if (input.available() < 8) {
+                throw IOException("Unexpected end of MIDI file.")
+            }
+
             val chunkName = readAscii(input, 4)
 
             if (chunkName != "MTrk") {
@@ -108,42 +124,78 @@ object MidiReader {
             val trackBytes = ByteArray(chunkLength)
             input.readFully(trackBytes)
 
-            val result = parseTrack(trackBytes)
+            val events = readEvents(trackBytes)
+            val metadata = parseMetadata(events)
 
-            if (trackIndex == 0) {
-                if (result.name.isNotBlank()) {
-                    songName = result.name
-                }
-            } else {
-                parsedTracks.add(
-                    MidiTrackData(
-                        name = result.name,
-                        program = result.program,
-                        bank = result.bank,
-                        volume = result.volume,
-                        posX = result.posX,
-                        posY = result.posY,
-                        flip = result.flip,
-                        muted = result.muted,
-                        notes = result.notes
-                    )
-                )
+            if (trackIndex == 0 && metadata.name.isNotBlank()) {
+                songName = metadata.name
+            } else if (songName == "Song" && metadata.name.isNotBlank()) {
+                songName = metadata.name
             }
 
-            if (trackIndex == 0) {
-                val metadata = parseMetadata(trackBytes)
-                tempo = metadata.first
-                numerator = metadata.second
-                denominator = metadata.third
+            if (metadata.tempo != null) {
+                tempo = metadata.tempo
+            }
 
-                if (metadata.fourth.isNotBlank()) {
-                    songName = metadata.fourth
+            if (metadata.numerator != null) {
+                numerator = metadata.numerator
+            }
+
+            if (metadata.denominator != null) {
+                denominator = metadata.denominator
+            }
+
+            // Split each physical MIDI track by channel.
+            // This also handles Format 0 files containing several instruments.
+            val channelGroups = linkedMapOf<Int, MutableList<RawEvent>>()
+
+            for (event in events) {
+                if (event.status == 0xFF) {
+                    continue
+                }
+
+                if (event.status >= 0xF0) {
+                    continue
+                }
+
+                val channel = event.status and 0x0F
+
+                channelGroups.getOrPut(channel) {
+                    mutableListOf()
+                }.add(event)
+            }
+
+            for ((channel, channelEvents) in channelGroups) {
+                val result = parseChannel(
+                    events = channelEvents,
+                    trackName = metadata.name,
+                    trackIndex = trackIndex,
+                    channel = channel
+                )
+
+                // Only create an instrument track when it actually has notes.
+                if (result.notes.isNotEmpty()) {
+                    parsedTracks.add(
+                        MidiTrackData(
+                            name = result.name,
+                            program = result.program,
+                            bank = result.bank,
+                            volume = result.volume,
+                            posX = result.posX,
+                            posY = result.posY,
+                            flip = result.flip,
+                            muted = result.muted,
+                            notes = result.notes
+                        )
+                    )
                 }
             }
         }
 
         if (parsedTracks.isEmpty()) {
-            throw IOException("No instrument tracks found. Format 1 MIDI needs a separate track for each monster.")
+            throw IOException(
+                "No MIDI notes were found. Make sure the MIDI file contains playable notes."
+            )
         }
 
         return ParsedMidi(
@@ -157,15 +209,13 @@ object MidiReader {
     }
 
     private fun parseMetadata(
-        bytes: ByteArray
-    ): Quadruple<Int, Int, Int, String> {
+        events: List<RawEvent>
+    ): TrackMetadata {
 
-        var tempo = 120
-        var numerator = 4
-        var denominator = 4
+        var tempo: Int? = null
+        var numerator: Int? = null
+        var denominator: Int? = null
         var name = ""
-
-        val events = readEvents(bytes)
 
         for (event in events) {
             if (event.status != 0xFF || event.data.isEmpty()) {
@@ -174,10 +224,14 @@ object MidiReader {
 
             when (event.data[0].toInt() and 0xFF) {
                 0x03 -> {
-                    name = String(
+                    val eventName = String(
                         event.data.copyOfRange(1, event.data.size),
                         Charsets.UTF_8
                     )
+
+                    if (eventName.isNotBlank()) {
+                        name = eventName
+                    }
                 }
 
                 0x51 -> {
@@ -195,21 +249,36 @@ object MidiReader {
 
                 0x58 -> {
                     if (event.data.size >= 3) {
-                        numerator = event.data[1].toInt() and 0xFF
-                        val power = event.data[2].toInt() and 0xFF
-                        denominator = 1 shl power
+                        val newNumerator =
+                            event.data[1].toInt() and 0xFF
+
+                        val power =
+                            event.data[2].toInt() and 0xFF
+
+                        if (power <= 10) {
+                            numerator = newNumerator
+                            denominator = 1 shl power
+                        }
                     }
                 }
             }
         }
 
-        return Quadruple(tempo, numerator, denominator, name)
+        return TrackMetadata(
+            tempo = tempo,
+            numerator = numerator,
+            denominator = denominator,
+            name = name
+        )
     }
 
-    private fun parseTrack(bytes: ByteArray): TrackResult {
-        val events = readEvents(bytes)
+    private fun parseChannel(
+        events: List<RawEvent>,
+        trackName: String,
+        trackIndex: Int,
+        channel: Int
+    ): TrackResult {
 
-        var name = ""
         var program = 0
         var bank = 0
         var volume = 1f
@@ -222,18 +291,6 @@ object MidiReader {
         val notes = mutableListOf<MidiNote>()
 
         for (event in events) {
-            if (event.status == 0xFF) {
-                if (event.data.isNotEmpty() &&
-                    (event.data[0].toInt() and 0xFF) == 0x03
-                ) {
-                    name = String(
-                        event.data.copyOfRange(1, event.data.size),
-                        Charsets.UTF_8
-                    )
-                }
-                continue
-            }
-
             val command = event.status and 0xF0
 
             when (command) {
@@ -244,25 +301,40 @@ object MidiReader {
                     val velocity = event.data[1].toInt() and 0xFF
 
                     if (velocity == 0) {
-                        closeNote(openNotes, notes, pitch, event.tick)
+                        closeNote(
+                            openNotes,
+                            notes,
+                            pitch,
+                            event.tick
+                        )
                     } else {
-                        openNotes.getOrPut(pitch) { ArrayDeque() }
-                            .addLast(event.tick)
+                        openNotes.getOrPut(pitch) {
+                            ArrayDeque()
+                        }.addLast(event.tick)
                     }
                 }
 
                 0x80 -> {
                     if (event.data.isNotEmpty()) {
                         val pitch = event.data[0].toInt() and 0xFF
-                        closeNote(openNotes, notes, pitch, event.tick)
+
+                        closeNote(
+                            openNotes,
+                            notes,
+                            pitch,
+                            event.tick
+                        )
                     }
                 }
 
                 0xB0 -> {
                     if (event.data.size < 2) continue
 
-                    val controller = event.data[0].toInt() and 0xFF
-                    val value = event.data[1].toInt() and 0xFF
+                    val controller =
+                        event.data[0].toInt() and 0xFF
+
+                    val value =
+                        event.data[1].toInt() and 0xFF
 
                     when (controller) {
                         0 -> bank = value
@@ -276,15 +348,18 @@ object MidiReader {
 
                 0xC0 -> {
                     if (event.data.isNotEmpty()) {
-                        program = event.data[0].toInt() and 0xFF
+                        program =
+                            event.data[0].toInt() and 0xFF
                     }
                 }
             }
         }
 
+        // Close any notes that were left open at the end of the track.
         for ((pitch, starts) in openNotes) {
             while (starts.isNotEmpty()) {
                 val start = starts.removeFirst()
+
                 notes.add(
                     MidiNote(
                         pitch = pitch,
@@ -295,8 +370,14 @@ object MidiReader {
             }
         }
 
+        val displayName = if (trackName.isNotBlank()) {
+            "$trackName - Channel ${channel + 1}"
+        } else {
+            "Track ${trackIndex + 1} - Channel ${channel + 1}"
+        }
+
         return TrackResult(
-            name = name,
+            name = displayName,
             program = program,
             bank = bank,
             volume = volume,
@@ -341,13 +422,14 @@ object MidiReader {
 
             val first = input.readUnsignedByte()
 
-            var status: Int
+            val status: Int
             var firstData: Int? = null
 
             if (first < 0x80) {
                 if (runningStatus == 0) {
                     throw IOException("Invalid MIDI running status.")
                 }
+
                 status = runningStatus
                 firstData = first
             } else {
@@ -384,6 +466,7 @@ object MidiReader {
 
             if (status == 0xF0 || status == 0xF7) {
                 runningStatus = 0
+
                 val length = readVariableLength(input)
 
                 if (length > input.available()) {
@@ -433,7 +516,9 @@ object MidiReader {
         return events
     }
 
-    private fun readVariableLength(input: DataInputStream): Long {
+    private fun readVariableLength(
+        input: DataInputStream
+    ): Long {
         var value = 0L
         var count = 0
 
@@ -443,7 +528,9 @@ object MidiReader {
             value = (value shl 7) or (byte and 0x7F).toLong()
             count++
 
-            if (byte and 0x80 == 0) break
+            if (byte and 0x80 == 0) {
+                break
+            }
 
             if (count >= 4) {
                 throw IOException("Invalid MIDI variable-length value.")
@@ -459,13 +546,7 @@ object MidiReader {
     ): String {
         val bytes = ByteArray(length)
         input.readFully(bytes)
+
         return String(bytes, Charsets.US_ASCII)
     }
-
-    private data class Quadruple<A, B, C, D>(
-        val first: A,
-        val second: B,
-        val third: C,
-        val fourth: D
-    )
 }
