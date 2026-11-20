@@ -364,7 +364,7 @@ object MidiReader {
                     throw IOException("Invalid MIDI meta event.")
                 }
 
-                val data = ByteArray(length)
+                val data = ByteArray(length.toInt())
                 input.readFully(data)
 
                 events.add(
@@ -390,7 +390,7 @@ object MidiReader {
                     throw IOException("Invalid MIDI system event.")
                 }
 
-                input.skipBytes(length)
+                input.skipBytes(length.toInt())
                 continue
             }
 
@@ -469,4 +469,3 @@ object MidiReader {
         val fourth: D
     )
 }
-
