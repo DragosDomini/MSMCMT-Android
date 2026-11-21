@@ -1,11 +1,16 @@
-
 package com.dragosdomini.msmtools
 
+import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.StateListDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.util.AttributeSet
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -17,6 +22,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.AppCompatTextView
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
@@ -32,24 +38,25 @@ class MainActivity : ComponentActivity() {
     private var singingFont: Typeface? = null
     private var bodyFont: Typeface? = null
 
-    // Classic MSM workshop palette
-    private val backgroundColor = Color.rgb(48, 65, 43)
-    private val woodLight = Color.rgb(173, 121, 75)
+    // Classic MSM workshop & composer palette
+    private val backgroundColor = Color.rgb(42, 58, 39)
+    private val woodLight = Color.rgb(179, 126, 76)
     private val woodColor = Color.rgb(119, 75, 46)
-    private val woodDark = Color.rgb(65, 40, 30)
+    private val woodDark = Color.rgb(58, 35, 24)
+    private val woodOutline = Color.rgb(34, 19, 12)
 
-    private val panelColor = Color.rgb(91, 59, 40)
     private val panelInnerColor = Color.rgb(235, 211, 161)
+    private val panelWellColor = Color.rgb(214, 184, 130)
 
-    private val goldColor = Color.rgb(242, 190, 83)
-    private val goldDark = Color.rgb(151, 101, 42)
+    private val goldColor = Color.rgb(246, 196, 82)
+    private val goldShadow = Color.rgb(156, 98, 28)
+    private val goldDark = Color.rgb(138, 88, 32)
 
-    private val creamColor = Color.rgb(255, 240, 204)
-    private val parchmentText = Color.rgb(81, 55, 36)
-    private val mutedColor = Color.rgb(205, 180, 135)
+    private val creamColor = Color.rgb(255, 244, 214)
+    private val parchmentText = Color.rgb(74, 48, 30)
 
-    private val greenColor = Color.rgb(99, 145, 65)
-    private val greenDark = Color.rgb(49, 91, 43)
+    private val greenColor = Color.rgb(112, 168, 62)
+    private val greenShadow = Color.rgb(46, 88, 34)
 
     private val openMidi =
         registerForActivityResult(
@@ -61,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
                 selectedFileText.text =
                     uri.lastPathSegment ?: "MIDI file selected"
+                selectedFileText.setTextColor(parchmentText)
 
                 statusText.text =
                     "Your song is ready to convert."
@@ -82,7 +90,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         window.statusBarColor = backgroundColor
-        window.navigationBarColor = woodDark
+        window.navigationBarColor = woodOutline
         window.decorView.systemUiVisibility = 0
 
         singingFont = loadFont("fonts/Singing_Monstrous.ttf")
@@ -115,10 +123,10 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
 
             setPadding(
-                dp(18),
-                dp(24),
-                dp(18),
-                dp(32)
+                dp(16),
+                dp(22),
+                dp(16),
+                dp(30)
             )
         }
 
@@ -132,22 +140,15 @@ class MainActivity : ComponentActivity() {
 
         // Main title
 
-        val title = TextView(this).apply {
+        val title = OutlinedTextView(this).apply {
             text = "MSM MIDI TOOLS"
-            textSize = 32f
-
+            textSize = 33f
             typeface = singingFont ?: Typeface.DEFAULT_BOLD
-
             setTextColor(goldColor)
+            strokeColor = woodOutline
+            strokeWidthPx = dp(6).toFloat()
             gravity = Gravity.CENTER
-            letterSpacing = 0.025f
-
-            setShadowLayer(
-                dp(3).toFloat(),
-                0f,
-                dp(3).toFloat(),
-                woodDark
-            )
+            letterSpacing = 0.03f
         }
 
         root.addView(
@@ -155,19 +156,20 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        val subtitle = TextView(this).apply {
+        val subtitle = OutlinedTextView(this).apply {
             text = "Turn your melodies into Monster Composer songs!"
             textSize = 15f
             typeface = bodyFont ?: Typeface.DEFAULT
-
             setTextColor(creamColor)
+            strokeColor = woodOutline
+            strokeWidthPx = dp(3).toFloat()
             gravity = Gravity.CENTER
 
             setPadding(
                 dp(8),
+                dp(6),
                 dp(8),
-                dp(8),
-                dp(22)
+                dp(20)
             )
         }
 
@@ -183,18 +185,19 @@ class MainActivity : ComponentActivity() {
 
             setPadding(
                 dp(15),
-                dp(19),
+                dp(18),
                 dp(15),
-                dp(19)
+                dp(18)
             )
 
             background = woodenBackground(
-                radius = 23,
-                border = goldColor,
-                borderWidth = 4
+                radius = 22,
+                border = woodOutline,
+                borderWidth = 3,
+                innerHighlight = goldColor
             )
 
-            elevation = dp(7).toFloat()
+            elevation = dp(8).toFloat()
         }
 
         root.addView(
@@ -202,15 +205,18 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        // Workshop title
+        // Workshop title banner
 
-        val panelTitle = makeText(
-            text = "SONG WORKSHOP",
-            size = 23f,
-            color = goldColor,
-            font = singingFont,
-            centered = true
-        )
+        val panelTitle = OutlinedTextView(this).apply {
+            text = "COMPOSER WORKSHOP"
+            textSize = 23f
+            typeface = singingFont ?: Typeface.DEFAULT_BOLD
+            setTextColor(creamColor)
+            strokeColor = woodOutline
+            strokeWidthPx = dp(5).toFloat()
+            gravity = Gravity.CENTER
+            letterSpacing = 0.02f
+        }
 
         mainPanel.addView(
             panelTitle,
@@ -233,9 +239,9 @@ class MainActivity : ComponentActivity() {
             dp(3)
         ).apply {
             setMargins(
-                dp(4),
-                dp(15),
-                dp(4),
+                dp(6),
+                dp(14),
+                dp(6),
                 dp(18)
             )
         }
@@ -245,17 +251,12 @@ class MainActivity : ComponentActivity() {
             dividerParams
         )
 
-        // MIDI selection section
+        // 1. MIDI selection section
 
         val selectCard = makeInnerPanel()
 
         selectCard.addView(
-            makeText(
-                "1. CHOOSE YOUR SONG",
-                18f,
-                parchmentText,
-                singingFont
-            )
+            makeStepHeader("1. CHOOSE YOUR SONG")
         )
 
         val selectDescription = makeText(
@@ -269,8 +270,8 @@ class MainActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
-            topMargin = dp(7)
-            bottomMargin = dp(14)
+            topMargin = dp(6)
+            bottomMargin = dp(12)
         }
 
         selectCard.addView(
@@ -280,7 +281,11 @@ class MainActivity : ComponentActivity() {
 
         val selectButton = makeButton(
             text = "SELECT MIDI FILE",
-            color = greenColor
+            topColor = lighten(greenColor, 26),
+            baseColor = greenColor,
+            bottomColor = greenShadow,
+            textColor = creamColor,
+            strokeColor = woodOutline
         ) {
             openMidi.launch(
                 arrayOf(
@@ -294,7 +299,7 @@ class MainActivity : ComponentActivity() {
 
         selectCard.addView(
             selectButton,
-            matchWidth(height = dp(55))
+            matchWidth(height = dp(54))
         )
 
         selectedFileText = makeText(
@@ -304,18 +309,26 @@ class MainActivity : ComponentActivity() {
             bodyFont
         ).apply {
             gravity = Gravity.CENTER
+            background = recessedWellBackground()
 
             setPadding(
-                dp(6),
-                dp(12),
-                dp(6),
-                dp(4)
+                dp(10),
+                dp(10),
+                dp(10),
+                dp(10)
             )
+        }
+
+        val fileWellParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(12)
         }
 
         selectCard.addView(
             selectedFileText,
-            matchWidth()
+            fileWellParams
         )
 
         mainPanel.addView(
@@ -323,19 +336,14 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        addSpace(mainPanel, 16)
+        addSpace(mainPanel, 15)
 
-        // Note settings section
+        // 2. Note settings section
 
         val settingsCard = makeInnerPanel()
 
         settingsCard.addView(
-            makeText(
-                "2. NOTE SETTINGS",
-                18f,
-                parchmentText,
-                singingFont
-            )
+            makeStepHeader("2. NOTE SETTINGS")
         )
 
         settingsCard.addView(
@@ -347,7 +355,7 @@ class MainActivity : ComponentActivity() {
             ).apply {
                 setPadding(
                     0,
-                    dp(7),
+                    dp(6),
                     0,
                     dp(12)
                 )
@@ -356,7 +364,6 @@ class MainActivity : ComponentActivity() {
         )
 
         noteLengthSpinner = Spinner(this).apply {
-
             adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_dropdown_item,
@@ -368,17 +375,17 @@ class MainActivity : ComponentActivity() {
             )
 
             setPadding(
-                dp(10),
-                dp(5),
-                dp(10),
-                dp(5)
+                dp(12),
+                dp(6),
+                dp(12),
+                dp(6)
             )
 
             background = roundedBackground(
                 color = creamColor,
                 stroke = goldDark,
-                radius = 10,
-                strokeWidth = 2
+                radius = 11,
+                strokeWidth = 3
             )
         }
 
@@ -398,16 +405,16 @@ class MainActivity : ComponentActivity() {
 
         convertButton = makeButton(
             text = "CONVERT TO MSM",
-            color = goldColor
+            topColor = lighten(goldColor, 28),
+            baseColor = goldColor,
+            bottomColor = goldShadow,
+            textColor = creamColor,
+            strokeColor = woodOutline
         ) {
             convertMidi()
         }
 
-        convertButton.setTextColor(
-            Color.rgb(69, 43, 28)
-        )
-
-        convertButton.textSize = 19f
+        convertButton.textSize = 20f
 
         mainPanel.addView(
             convertButton,
@@ -421,12 +428,7 @@ class MainActivity : ComponentActivity() {
         val statusPanel = makeInnerPanel()
 
         statusPanel.addView(
-            makeText(
-                "WORKSHOP STATUS",
-                18f,
-                parchmentText,
-                singingFont
-            )
+            makeStepHeader("WORKSHOP STATUS")
         )
 
         statusText = makeText(
@@ -435,19 +437,27 @@ class MainActivity : ComponentActivity() {
             parchmentText,
             bodyFont
         ).apply {
-            setPadding(
-                0,
-                dp(12),
-                0,
-                dp(4)
-            )
-
             gravity = Gravity.CENTER
+            background = recessedWellBackground()
+
+            setPadding(
+                dp(10),
+                dp(12),
+                dp(10),
+                dp(12)
+            )
+        }
+
+        val statusWellParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            topMargin = dp(10)
         }
 
         statusPanel.addView(
             statusText,
-            matchWidth()
+            statusWellParams
         )
 
         mainPanel.addView(
@@ -457,17 +467,18 @@ class MainActivity : ComponentActivity() {
 
         // Footer
 
-        val footer = makeText(
-            "MY SINGING MONSTERS COMPOSER TOOL",
-            12f,
-            creamColor,
-            bodyFont
-        ).apply {
+        val footer = OutlinedTextView(this).apply {
+            text = "MY SINGING MONSTERS COMPOSER TOOL"
+            textSize = 12f
+            typeface = bodyFont ?: Typeface.DEFAULT
+            setTextColor(creamColor)
+            strokeColor = woodOutline
+            strokeWidthPx = dp(2).toFloat()
             gravity = Gravity.CENTER
 
             setPadding(
                 0,
-                dp(22),
+                dp(20),
                 0,
                 0
             )
@@ -481,15 +492,24 @@ class MainActivity : ComponentActivity() {
         setContentView(scrollView)
     }
 
-    // Wooden panel background
+    private fun makeStepHeader(titleText: String): OutlinedTextView {
+        return OutlinedTextView(this).apply {
+            text = titleText
+            textSize = 18f
+            typeface = singingFont ?: Typeface.DEFAULT_BOLD
+            setTextColor(goldColor)
+            strokeColor = woodOutline
+            strokeWidthPx = dp(4).toFloat()
+        }
+    }
 
     private fun woodenBackground(
         radius: Int,
         border: Int,
-        borderWidth: Int
-    ): GradientDrawable {
-
-        return GradientDrawable(
+        borderWidth: Int,
+        innerHighlight: Int
+    ): LayerDrawable {
+        val outer = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
                 woodLight,
@@ -497,53 +517,56 @@ class MainActivity : ComponentActivity() {
                 woodDark
             )
         ).apply {
-
             cornerRadius = dp(radius).toFloat()
+            setStroke(dp(borderWidth), border)
+        }
 
-            setStroke(
-                dp(borderWidth),
-                border
-            )
+        val innerTrim = GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            cornerRadius = dp((radius - 3).coerceAtLeast(4)).toFloat()
+            setStroke(dp(2), innerHighlight)
+        }
+
+        return LayerDrawable(arrayOf(outer, innerTrim)).apply {
+            val inset = dp(borderWidth)
+            setLayerInset(1, inset, inset, inset, inset)
         }
     }
 
-    // Parchment inner panels
-
     private fun makeInnerPanel(): LinearLayout {
-
         return LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
 
             setPadding(
                 dp(14),
-                dp(15),
                 dp(14),
-                dp(15)
+                dp(14),
+                dp(14)
             )
 
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(
-                    Color.rgb(248, 228, 185),
+                    Color.rgb(250, 232, 192),
                     panelInnerColor,
-                    Color.rgb(213, 184, 132)
+                    Color.rgb(214, 184, 130)
                 )
             ).apply {
-
-                cornerRadius = dp(15).toFloat()
-
-                setStroke(
-                    dp(3),
-                    goldDark
-                )
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(3), goldDark)
             }
 
             elevation = dp(3).toFloat()
         }
     }
 
-    // Text creation
+    private fun recessedWellBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(panelWellColor)
+            cornerRadius = dp(10).toFloat()
+            setStroke(dp(2), goldDark)
+        }
+    }
 
     private fun makeText(
         text: String,
@@ -552,67 +575,48 @@ class MainActivity : ComponentActivity() {
         font: Typeface?,
         centered: Boolean = false
     ): TextView {
-
         return TextView(this).apply {
-
             this.text = text
             textSize = size
-
             setTextColor(color)
-
             typeface = font ?: Typeface.DEFAULT
-
             if (centered) {
                 gravity = Gravity.CENTER
             }
         }
     }
 
-    // MSM-style dimensional buttons
-
     private fun makeButton(
         text: String,
-        color: Int,
+        topColor: Int,
+        baseColor: Int,
+        bottomColor: Int,
+        textColor: Int,
+        strokeColor: Int,
         action: () -> Unit
     ): Button {
-
         return Button(this).apply {
-
             this.text = text
-
-            textSize = 16f
-
-            typeface =
-                singingFont ?: Typeface.DEFAULT_BOLD
-
-            setTextColor(creamColor)
-
+            textSize = 17f
+            typeface = singingFont ?: Typeface.DEFAULT_BOLD
+            setTextColor(textColor)
             isAllCaps = false
 
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(
-                    lighten(color, 35),
-                    color,
-                    greenDark
-                )
-            ).apply {
-
-                cornerRadius = dp(14).toFloat()
-
-                setStroke(
-                    dp(3),
-                    goldColor
-                )
-            }
+            background = msmButtonDrawable(
+                topColor = topColor,
+                baseColor = baseColor,
+                bottomColor = bottomColor,
+                strokeColor = strokeColor,
+                radiusDp = 14
+            )
 
             elevation = dp(5).toFloat()
 
             setPadding(
-                dp(12),
-                dp(5),
-                dp(12),
-                dp(5)
+                dp(14),
+                dp(6),
+                dp(14),
+                dp(6)
             )
 
             setOnClickListener {
@@ -621,12 +625,60 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun lighten(color: Int, amount: Int): Int {
+    private fun msmButtonDrawable(
+        topColor: Int,
+        baseColor: Int,
+        bottomColor: Int,
+        strokeColor: Int,
+        radiusDp: Int
+    ): StateListDrawable {
+        val normalBase = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                topColor,
+                baseColor,
+                bottomColor
+            )
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(3), strokeColor)
+        }
 
+        val gloss = GradientDrawable().apply {
+            setColor(Color.argb(65, 255, 255, 255))
+            cornerRadius = dp((radiusDp - 4).coerceAtLeast(4)).toFloat()
+        }
+
+        val normalState = LayerDrawable(arrayOf(normalBase, gloss)).apply {
+            val side = dp(6)
+            val top = dp(4)
+            val bottom = dp(24)
+            setLayerInset(1, side, top, side, bottom)
+        }
+
+        val pressedState = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                bottomColor,
+                baseColor,
+                topColor
+            )
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(3), strokeColor)
+        }
+
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), pressedState)
+            addState(intArrayOf(-android.R.attr.state_enabled), normalBase.apply { alpha = 140 })
+            addState(intArrayOf(), normalState)
+        }
+    }
+
+    private fun lighten(color: Int, amount: Int): Int {
         val red = (Color.red(color) + amount).coerceAtMost(255)
         val green = (Color.green(color) + amount).coerceAtMost(255)
         val blue = (Color.blue(color) + amount).coerceAtMost(255)
-
         return Color.rgb(red, green, blue)
     }
 
@@ -636,25 +688,14 @@ class MainActivity : ComponentActivity() {
         radius: Int,
         strokeWidth: Int
     ): GradientDrawable {
-
         return GradientDrawable().apply {
-
             setColor(color)
-
             cornerRadius = dp(radius).toFloat()
-
-            setStroke(
-                dp(strokeWidth),
-                stroke
-            )
+            setStroke(dp(strokeWidth), stroke)
         }
     }
 
-    private fun addSpace(
-        parent: LinearLayout,
-        height: Int
-    ) {
-
+    private fun addSpace(parent: LinearLayout, height: Int) {
         parent.addView(
             View(this),
             LinearLayout.LayoutParams(
@@ -667,7 +708,6 @@ class MainActivity : ComponentActivity() {
     private fun matchWidth(
         height: Int = ViewGroup.LayoutParams.WRAP_CONTENT
     ): LinearLayout.LayoutParams {
-
         return LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             height
@@ -675,49 +715,37 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dp(value: Int): Int {
-
-        return (
-            value * resources.displayMetrics.density
-        ).toInt()
+        return (value * resources.displayMetrics.density).toInt()
     }
 
     // MIDI conversion — original converter integration preserved
 
     private fun convertMidi() {
-
         val midiUri = selectedMidi
 
         if (midiUri == null) {
-            statusText.text =
-                "Please select a MIDI file first."
+            statusText.text = "Please select a MIDI file first."
             return
         }
 
         convertButton.isEnabled = false
-
         statusText.text = "Reading your song..."
 
         try {
-
             val midiBytes = contentResolver
                 .openInputStream(midiUri)
                 ?.use { it.readBytes() }
-                ?: throw IOException(
-                    "Could not open MIDI file."
-                )
+                ?: throw IOException("Could not open MIDI file.")
 
             val parsedMidi = MidiReader.read(midiBytes)
 
-            val noteDivision = when (
-                noteLengthSpinner.selectedItemPosition
-            ) {
+            val noteDivision = when (noteLengthSpinner.selectedItemPosition) {
                 1 -> 16
                 2 -> 32
                 else -> 8
             }
 
-            statusText.text =
-                "Converting your monsters' music..."
+            statusText.text = "Converting your monsters' music..."
 
             val msmBytes = MsmConverter.convert(
                 context = this,
@@ -734,15 +762,11 @@ class MainActivity : ComponentActivity() {
             saveMsm.launch("converted_song.msm")
 
         } catch (e: Exception) {
-
             convertedMsm = null
-
             statusText.text =
                 "Conversion failed:\n" +
                 (e.message ?: "Unknown error")
-
         } finally {
-
             convertButton.isEnabled = true
         }
     }
@@ -750,35 +774,46 @@ class MainActivity : ComponentActivity() {
     // Save converted MSM file
 
     private fun saveConvertedFile(uri: Uri) {
-
         val data = convertedMsm
 
         if (data == null) {
-
-            statusText.text =
-                "There is no converted song to save."
-
+            statusText.text = "There is no converted song to save."
             return
         }
 
         try {
-
             contentResolver.openOutputStream(uri)?.use {
-
                 it.write(data)
                 it.flush()
+            } ?: throw IOException("Could not create output file.")
 
-            } ?: throw IOException(
-                "Could not create output file."
-            )
-
-            statusText.text =
-                "Your MSM song was saved successfully!"
+            statusText.text = "Your MSM song was saved successfully!"
 
         } catch (e: Exception) {
-
-            statusText.text =
-                "Could not save the file:\n${e.message}"
+            statusText.text = "Could not save the file:\n${e.message}"
         }
+    }
+}
+
+class OutlinedTextView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : AppCompatTextView(context, attrs, defStyleAttr) {
+
+    var strokeColor: Int = Color.parseColor("#22130C")
+    var strokeWidthPx: Float = 5f
+
+    override fun onDraw(canvas: Canvas) {
+        val originalColor = currentTextColor
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = strokeWidthPx
+        paint.strokeJoin = Paint.Join.ROUND
+        setTextColor(strokeColor)
+        super.onDraw(canvas)
+
+        paint.style = Paint.Style.FILL
+        setTextColor(originalColor)
+        super.onDraw(canvas)
     }
 }
