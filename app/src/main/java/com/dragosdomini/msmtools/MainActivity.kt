@@ -24,7 +24,6 @@ import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.AppCompatTextView
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
@@ -39,8 +38,6 @@ class MainActivity : ComponentActivity() {
 
     private var singingFont: Typeface? = null
     private var bodyFont: Typeface? = null
-
-    // Classic MSM colours
 
     private val backgroundColor = Color.rgb(24, 27, 24)
     private val woodDark = Color.rgb(55, 35, 25)
@@ -58,15 +55,11 @@ class MainActivity : ComponentActivity() {
     private val greenColor = Color.rgb(112, 168, 62)
     private val greenDark = Color.rgb(46, 88, 34)
 
-    // MIDI selection
-
     private val openMidi =
         registerForActivityResult(
             ActivityResultContracts.OpenDocument()
         ) { uri ->
-
             if (uri != null) {
-
                 selectedMidi = uri
                 convertedMsm = null
 
@@ -78,15 +71,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // MSM saving
-
     private val saveMsm =
         registerForActivityResult(
             ActivityResultContracts.CreateDocument(
                 "application/octet-stream"
             )
         ) { uri ->
-
             if (uri != null) {
                 saveConvertedFile(uri)
             }
@@ -99,9 +89,7 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = woodDark
         window.decorView.systemUiVisibility = 0
 
-        singingFont = loadFont(
-            "fonts/Singing_Monstrous.ttf"
-        )
+        singingFont = loadFont("fonts/Singing_Monstrous.ttf")
 
         bodyFont =
             loadFont("fonts/Fredoka-VariableFont_wdth,wght.ttf")
@@ -128,19 +116,12 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(backgroundColor)
         }
 
-        // Actual repository artwork.
-        // CENTER_CROP preserves the original image proportions.
+        // Load the repository panel artwork.
 
         val backgroundImage = ImageView(this).apply {
-
             setBackgroundColor(backgroundColor)
-
             scaleType = ImageView.ScaleType.CENTER_CROP
-
-            setImageDrawable(
-                loadPanelBackground()
-            )
-
+            setImageDrawable(loadPanelBackground())
             contentDescription = "Classic MSM panel background"
         }
 
@@ -152,8 +133,6 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        // Scrollable content
-
         val scrollView = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
@@ -161,7 +140,6 @@ class MainActivity : ComponentActivity() {
         }
 
         val root = LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
 
@@ -191,45 +169,28 @@ class MainActivity : ComponentActivity() {
 
         // TITLE
 
-        val title = OutlinedTextView(this).apply {
-
-            text = "MSM MIDI TOOLS"
-            textSize = 31f
-
-            typeface = singingFont ?: Typeface.DEFAULT_BOLD
-
-            setTextColor(goldColor)
-
-            strokeColor = woodOutline
-            strokeWidthPx = dp(5).toFloat()
-
+        val title = makeOutlinedText(
+            "MSM MIDI TOOLS",
+            31f,
+            goldColor,
+            singingFont,
+            dp(5)
+        ).apply {
             gravity = Gravity.CENTER
             letterSpacing = 0.025f
         }
 
         root.addView(title, matchWidth())
 
-        val subtitle = OutlinedTextView(this).apply {
-
-            text = "Turn your melodies into Monster Composer songs!"
-
-            textSize = 14f
-
-            typeface = bodyFont ?: Typeface.DEFAULT
-
-            setTextColor(creamColor)
-
-            strokeColor = woodOutline
-            strokeWidthPx = dp(3).toFloat()
-
+        val subtitle = makeOutlinedText(
+            "Turn your melodies into Monster Composer songs!",
+            14f,
+            creamColor,
+            bodyFont,
+            dp(3)
+        ).apply {
             gravity = Gravity.CENTER
-
-            setPadding(
-                dp(8),
-                dp(8),
-                dp(8),
-                dp(24)
-            )
+            setPadding(dp(8), dp(8), dp(8), dp(24))
         }
 
         root.addView(subtitle, matchWidth())
@@ -237,7 +198,6 @@ class MainActivity : ComponentActivity() {
         // WORKSHOP CONTENT
 
         val workshop = LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
 
             setPadding(
@@ -254,22 +214,14 @@ class MainActivity : ComponentActivity() {
                     Color.argb(245, 39, 28, 25)
                 )
             ).apply {
-
                 cornerRadius = dp(19).toFloat()
-
-                setStroke(
-                    dp(3),
-                    goldColor
-                )
+                setStroke(dp(3), goldColor)
             }
 
             elevation = dp(8).toFloat()
         }
 
-        root.addView(
-            workshop,
-            matchWidth()
-        )
+        root.addView(workshop, matchWidth())
 
         val workshopTitle = makeOutlinedText(
             "SONG WORKSHOP",
@@ -277,24 +229,16 @@ class MainActivity : ComponentActivity() {
             goldColor,
             singingFont,
             dp(4)
-        )
+        ).apply {
+            gravity = Gravity.CENTER
+        }
 
-        workshopTitle.gravity = Gravity.CENTER
-
-        workshop.addView(
-            workshopTitle,
-            matchWidth()
-        )
+        workshop.addView(workshopTitle, matchWidth())
 
         val separator = View(this).apply {
-
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(
-                    woodDark,
-                    goldColor,
-                    woodDark
-                )
+                intArrayOf(woodDark, goldColor, woodDark)
             )
         }
 
@@ -304,12 +248,7 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(3)
             ).apply {
-                setMargins(
-                    dp(4),
-                    dp(15),
-                    dp(4),
-                    dp(18)
-                )
+                setMargins(dp(4), dp(15), dp(4), dp(18))
             }
         )
 
@@ -318,7 +257,8 @@ class MainActivity : ComponentActivity() {
         val fileCard = makeInnerPanel()
 
         fileCard.addView(
-            makeStepHeader("1. CHOOSE YOUR SONG")
+            makeStepHeader("1. CHOOSE YOUR SONG"),
+            matchWidth()
         )
 
         fileCard.addView(
@@ -328,12 +268,7 @@ class MainActivity : ComponentActivity() {
                 parchmentText,
                 bodyFont
             ).apply {
-                setPadding(
-                    0,
-                    dp(7),
-                    0,
-                    dp(13)
-                )
+                setPadding(0, dp(7), 0, dp(13))
             },
             matchWidth()
         )
@@ -353,10 +288,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        fileCard.addView(
-            selectButton,
-            matchWidth(dp(55))
-        )
+        fileCard.addView(selectButton, matchWidth(dp(55)))
 
         selectedFileText = makeText(
             "No song selected yet.",
@@ -364,28 +296,14 @@ class MainActivity : ComponentActivity() {
             parchmentText,
             bodyFont
         ).apply {
-
             gravity = Gravity.CENTER
-
             background = recessedBackground()
-
-            setPadding(
-                dp(10),
-                dp(12),
-                dp(10),
-                dp(12)
-            )
+            setPadding(dp(10), dp(12), dp(10), dp(12))
         }
 
-        fileCard.addView(
-            selectedFileText,
-            matchWidth()
-        )
+        fileCard.addView(selectedFileText, matchWidth())
 
-        workshop.addView(
-            fileCard,
-            matchWidth()
-        )
+        workshop.addView(fileCard, matchWidth())
 
         addSpace(workshop, 15)
 
@@ -394,7 +312,8 @@ class MainActivity : ComponentActivity() {
         val settingsCard = makeInnerPanel()
 
         settingsCard.addView(
-            makeStepHeader("2. NOTE SETTINGS")
+            makeStepHeader("2. NOTE SETTINGS"),
+            matchWidth()
         )
 
         settingsCard.addView(
@@ -404,36 +323,20 @@ class MainActivity : ComponentActivity() {
                 parchmentText,
                 bodyFont
             ).apply {
-                setPadding(
-                    0,
-                    dp(7),
-                    0,
-                    dp(12)
-                )
+                setPadding(0, dp(7), 0, dp(12))
             },
             matchWidth()
         )
 
         noteLengthSpinner = Spinner(this).apply {
-
             adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_dropdown_item,
-                listOf(
-                    "1/8 note",
-                    "1/16 note",
-                    "1/32 note"
-                )
+                listOf("1/8 note", "1/16 note", "1/32 note")
             )
 
             background = recessedBackground()
-
-            setPadding(
-                dp(12),
-                dp(6),
-                dp(12),
-                dp(6)
-            )
+            setPadding(dp(12), dp(6), dp(12), dp(6))
         }
 
         settingsCard.addView(
@@ -441,10 +344,7 @@ class MainActivity : ComponentActivity() {
             matchWidth(dp(52))
         )
 
-        workshop.addView(
-            settingsCard,
-            matchWidth()
-        )
+        workshop.addView(settingsCard, matchWidth())
 
         addSpace(workshop, 17)
 
@@ -472,7 +372,8 @@ class MainActivity : ComponentActivity() {
         val statusCard = makeInnerPanel()
 
         statusCard.addView(
-            makeStepHeader("WORKSHOP STATUS")
+            makeStepHeader("WORKSHOP STATUS"),
+            matchWidth()
         )
 
         statusText = makeText(
@@ -481,28 +382,14 @@ class MainActivity : ComponentActivity() {
             parchmentText,
             bodyFont
         ).apply {
-
             gravity = Gravity.CENTER
-
             background = recessedBackground()
-
-            setPadding(
-                dp(10),
-                dp(14),
-                dp(10),
-                dp(14)
-            )
+            setPadding(dp(10), dp(14), dp(10), dp(14))
         }
 
-        statusCard.addView(
-            statusText,
-            matchWidth()
-        )
+        statusCard.addView(statusText, matchWidth())
 
-        workshop.addView(
-            statusCard,
-            matchWidth()
-        )
+        workshop.addView(statusCard, matchWidth())
 
         // FOOTER
 
@@ -513,21 +400,11 @@ class MainActivity : ComponentActivity() {
             bodyFont,
             dp(2)
         ).apply {
-
             gravity = Gravity.CENTER
-
-            setPadding(
-                0,
-                dp(22),
-                0,
-                0
-            )
+            setPadding(0, dp(22), 0, 0)
         }
 
-        root.addView(
-            footer,
-            matchWidth()
-        )
+        root.addView(footer, matchWidth())
 
         setContentView(container)
     }
@@ -537,24 +414,14 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun loadPanelBackground(): BitmapDrawable? {
-
         return try {
-
             assets.open("images/panel.png").use { stream ->
-
                 val bitmap = BitmapFactory.decodeStream(stream)
                     ?: return null
 
-                BitmapDrawable(resources, bitmap).apply {
-
-                    // The ImageView handles scaling.
-                    // Do not stretch the BitmapDrawable itself.
-
-                }
+                BitmapDrawable(resources, bitmap)
             }
-
-        } catch (e: Exception) {
-
+        } catch (_: Exception) {
             null
         }
     }
@@ -564,9 +431,7 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun makeInnerPanel(): LinearLayout {
-
         return LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
 
             setPadding(
@@ -584,13 +449,8 @@ class MainActivity : ComponentActivity() {
                     parchmentDark
                 )
             ).apply {
-
                 cornerRadius = dp(14).toFloat()
-
-                setStroke(
-                    dp(3),
-                    goldDark
-                )
+                setStroke(dp(3), goldDark)
             }
 
             elevation = dp(4).toFloat()
@@ -598,7 +458,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun makeStepHeader(text: String): TextView {
-
         return makeText(
             text,
             18f,
@@ -613,14 +472,10 @@ class MainActivity : ComponentActivity() {
         color: Int,
         font: Typeface?
     ): TextView {
-
         return TextView(this).apply {
-
             this.text = text
             textSize = size
-
             setTextColor(color)
-
             typeface = font ?: Typeface.DEFAULT
         }
     }
@@ -632,16 +487,11 @@ class MainActivity : ComponentActivity() {
         font: Typeface?,
         stroke: Int
     ): OutlinedTextView {
-
         return OutlinedTextView(this).apply {
-
             this.text = text
             textSize = size
-
             typeface = font ?: Typeface.DEFAULT
-
             setTextColor(color)
-
             strokeColor = woodOutline
             strokeWidthPx = stroke.toFloat()
         }
@@ -653,17 +503,11 @@ class MainActivity : ComponentActivity() {
         textColor: Int,
         action: () -> Unit
     ): Button {
-
         return Button(this).apply {
-
             this.text = text
-
             textSize = 16f
-
             typeface = singingFont ?: Typeface.DEFAULT_BOLD
-
             setTextColor(textColor)
-
             isAllCaps = false
 
             background = GradientDrawable(
@@ -674,50 +518,29 @@ class MainActivity : ComponentActivity() {
                     greenDark
                 )
             ).apply {
-
                 cornerRadius = dp(13).toFloat()
-
-                setStroke(
-                    dp(3),
-                    goldColor
-                )
+                setStroke(dp(3), goldColor)
             }
 
             elevation = dp(5).toFloat()
 
-            setPadding(
-                dp(12),
-                dp(5),
-                dp(12),
-                dp(5)
-            )
+            setPadding(dp(12), dp(5), dp(12), dp(5))
 
             setOnClickListener {
-
-                if (isEnabled) {
-                    action()
-                }
+                if (isEnabled) action()
             }
         }
     }
 
     private fun recessedBackground(): GradientDrawable {
-
         return GradientDrawable().apply {
-
             setColor(parchmentDark)
-
             cornerRadius = dp(10).toFloat()
-
-            setStroke(
-                dp(2),
-                goldDark
-            )
+            setStroke(dp(2), goldDark)
         }
     }
 
     private fun lighten(color: Int, amount: Int): Int {
-
         return Color.rgb(
             (Color.red(color) + amount).coerceAtMost(255),
             (Color.green(color) + amount).coerceAtMost(255),
@@ -729,7 +552,6 @@ class MainActivity : ComponentActivity() {
         parent: LinearLayout,
         height: Int
     ) {
-
         parent.addView(
             View(this),
             LinearLayout.LayoutParams(
@@ -742,7 +564,6 @@ class MainActivity : ComponentActivity() {
     private fun matchWidth(
         height: Int = ViewGroup.LayoutParams.WRAP_CONTENT
     ): LinearLayout.LayoutParams {
-
         return LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             height
@@ -750,7 +571,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dp(value: Int): Int {
-
         return (
             value * resources.displayMetrics.density
         ).toInt()
@@ -761,36 +581,27 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun convertMidi() {
-
         val midiUri = selectedMidi
 
         if (midiUri == null) {
-
-            statusText.text =
-                "Please select a MIDI file first."
-
+            statusText.text = "Please select a MIDI file first."
             return
         }
 
         convertButton.isEnabled = false
-
         statusText.text = "Reading your song..."
 
         try {
-
             val midiBytes = contentResolver
                 .openInputStream(midiUri)
                 ?.use { it.readBytes() }
-                ?: throw IOException(
-                    "Could not open MIDI file."
-                )
+                ?: throw IOException("Could not open MIDI file.")
 
             val parsedMidi = MidiReader.read(midiBytes)
 
             val noteDivision = when (
                 noteLengthSpinner.selectedItemPosition
             ) {
-
                 1 -> 16
                 2 -> 32
                 else -> 8
@@ -814,7 +625,6 @@ class MainActivity : ComponentActivity() {
             saveMsm.launch("converted_song.msm")
 
         } catch (e: Exception) {
-
             convertedMsm = null
 
             statusText.text =
@@ -822,7 +632,6 @@ class MainActivity : ComponentActivity() {
                 (e.message ?: "Unknown error")
 
         } finally {
-
             convertButton.isEnabled = true
         }
     }
@@ -832,33 +641,23 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun saveConvertedFile(uri: Uri) {
-
         val data = convertedMsm
 
         if (data == null) {
-
-            statusText.text =
-                "There is no converted song to save."
-
+            statusText.text = "There is no converted song to save."
             return
         }
 
         try {
-
             contentResolver.openOutputStream(uri)?.use {
-
                 it.write(data)
                 it.flush()
-
-            } ?: throw IOException(
-                "Could not create output file."
-            )
+            } ?: throw IOException("Could not create output file.")
 
             statusText.text =
                 "Your MSM song was saved successfully!"
 
         } catch (e: Exception) {
-
             statusText.text =
                 "Could not save the file:\n${e.message}"
         }
@@ -867,33 +666,38 @@ class MainActivity : ComponentActivity() {
 
 // --------------------------------------------------
 // OUTLINED MSM TEXT
+// Uses Android's built-in TextView.
+// No AppCompat dependency required.
 // --------------------------------------------------
 
 class OutlinedTextView @JvmOverloads constructor(
     context: Context,
     attrs: android.util.AttributeSet? = null,
     defStyleAttr: Int = 0
-) : AppCompatTextView(context, attrs, defStyleAttr) {
+) : TextView(context, attrs, defStyleAttr) {
 
     var strokeColor: Int = Color.BLACK
     var strokeWidthPx: Float = 5f
 
     override fun onDraw(canvas: Canvas) {
-
         val originalColor = currentTextColor
+        val originalStyle = paint.style
+        val originalStrokeWidth = paint.strokeWidth
+        val originalJoin = paint.strokeJoin
 
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = strokeWidthPx
         paint.strokeJoin = Paint.Join.ROUND
 
         setTextColor(strokeColor)
-
         super.onDraw(canvas)
 
         paint.style = Paint.Style.FILL
-
         setTextColor(originalColor)
-
         super.onDraw(canvas)
+
+        paint.style = originalStyle
+        paint.strokeWidth = originalStrokeWidth
+        paint.strokeJoin = originalJoin
     }
 }
