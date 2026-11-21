@@ -11,7 +11,6 @@ import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.NinePatchDrawable
 import android.graphics.drawable.StateListDrawable
 import android.net.Uri
@@ -22,6 +21,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -44,12 +44,10 @@ class MainActivity : ComponentActivity() {
     private var singingFont: Typeface? = null
     private var bodyFont: Typeface? = null
 
-    // Classic MSM workshop & composer palette
-    private val backgroundColor = Color.rgb(42, 58, 39)
-    private val woodLight = Color.rgb(179, 126, 76)
-    private val woodColor = Color.rgb(119, 75, 46)
+    // Classic MSM composer & workshop palette
+    private val backgroundColor = Color.rgb(18, 18, 18)
     private val woodDark = Color.rgb(58, 35, 24)
-    private val woodOutline = Color.rgb(34, 19, 12)
+    private val woodOutline = Color.rgb(28, 16, 10)
 
     private val panelInnerColor = Color.rgb(235, 211, 161)
     private val panelWellColor = Color.rgb(214, 184, 130)
@@ -118,8 +116,12 @@ class MainActivity : ComponentActivity() {
 
     private fun buildInterface() {
 
-        val scrollView = ScrollView(this).apply {
+        val container = FrameLayout(this).apply {
             setBackgroundColor(backgroundColor)
+            background = loadPanelBackground("images/panel.png")
+        }
+
+        val scrollView = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
         }
@@ -129,10 +131,10 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
 
             setPadding(
-                dp(16),
-                dp(22),
-                dp(16),
-                dp(30)
+                dp(26),
+                dp(28),
+                dp(26),
+                dp(34)
             )
         }
 
@@ -144,11 +146,19 @@ class MainActivity : ComponentActivity() {
             )
         )
 
+        container.addView(
+            scrollView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
         // Main title
 
         val title = OutlinedTextView(this).apply {
             text = "MSM MIDI TOOLS"
-            textSize = 33f
+            textSize = 32f
             typeface = singingFont ?: Typeface.DEFAULT_BOLD
             setTextColor(goldColor)
             strokeColor = woodOutline
@@ -164,7 +174,7 @@ class MainActivity : ComponentActivity() {
 
         val subtitle = OutlinedTextView(this).apply {
             text = "Turn your melodies into Monster Composer songs!"
-            textSize = 15f
+            textSize = 14f
             typeface = bodyFont ?: Typeface.DEFAULT
             setTextColor(creamColor)
             strokeColor = woodOutline
@@ -175,80 +185,13 @@ class MainActivity : ComponentActivity() {
                 dp(8),
                 dp(6),
                 dp(8),
-                dp(20)
+                dp(18)
             )
         }
 
         root.addView(
             subtitle,
             matchWidth()
-        )
-
-        // Main menu panel using assets/images/panel.png with fallback
-
-        val mainPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-
-            setPadding(
-                dp(20),
-                dp(20),
-                dp(20),
-                dp(20)
-            )
-
-            background = loadPanelBackground("images/panel.png")
-            elevation = dp(8).toFloat()
-        }
-
-        root.addView(
-            mainPanel,
-            matchWidth()
-        )
-
-        // Workshop title banner
-
-        val panelTitle = OutlinedTextView(this).apply {
-            text = "COMPOSER WORKSHOP"
-            textSize = 23f
-            typeface = singingFont ?: Typeface.DEFAULT_BOLD
-            setTextColor(creamColor)
-            strokeColor = woodOutline
-            strokeWidthPx = dp(5).toFloat()
-            gravity = Gravity.CENTER
-            letterSpacing = 0.02f
-        }
-
-        mainPanel.addView(
-            panelTitle,
-            matchWidth()
-        )
-
-        val divider = View(this).apply {
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(
-                    woodDark,
-                    goldColor,
-                    woodDark
-                )
-            )
-        }
-
-        val dividerParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(3)
-        ).apply {
-            setMargins(
-                dp(6),
-                dp(14),
-                dp(6),
-                dp(18)
-            )
-        }
-
-        mainPanel.addView(
-            divider,
-            dividerParams
         )
 
         // 1. MIDI selection section
@@ -331,12 +274,12 @@ class MainActivity : ComponentActivity() {
             fileWellParams
         )
 
-        mainPanel.addView(
+        root.addView(
             selectCard,
             matchWidth()
         )
 
-        addSpace(mainPanel, 15)
+        addSpace(root, 14)
 
         // 2. Note settings section
 
@@ -394,12 +337,12 @@ class MainActivity : ComponentActivity() {
             matchWidth(height = dp(52))
         )
 
-        mainPanel.addView(
+        root.addView(
             settingsCard,
             matchWidth()
         )
 
-        addSpace(mainPanel, 18)
+        addSpace(root, 16)
 
         // Conversion button
 
@@ -416,12 +359,12 @@ class MainActivity : ComponentActivity() {
 
         convertButton.textSize = 20f
 
-        mainPanel.addView(
+        root.addView(
             convertButton,
             matchWidth(height = dp(62))
         )
 
-        addSpace(mainPanel, 18)
+        addSpace(root, 16)
 
         // Workshop status
 
@@ -460,7 +403,7 @@ class MainActivity : ComponentActivity() {
             statusWellParams
         )
 
-        mainPanel.addView(
+        root.addView(
             statusPanel,
             matchWidth()
         )
@@ -478,7 +421,7 @@ class MainActivity : ComponentActivity() {
 
             setPadding(
                 0,
-                dp(20),
+                dp(18),
                 0,
                 0
             )
@@ -489,7 +432,7 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        setContentView(scrollView)
+        setContentView(container)
     }
 
     private fun loadPanelBackground(
@@ -498,12 +441,9 @@ class MainActivity : ComponentActivity() {
         return try {
             assets.open(assetPath).use { inputStream ->
                 val bitmap = BitmapFactory.decodeStream(inputStream)
-                    ?: return woodenBackground(
-                        radius = 22,
-                        border = woodOutline,
-                        borderWidth = 3,
-                        innerHighlight = goldColor
-                    )
+                    ?: return GradientDrawable().apply {
+                        setColor(backgroundColor)
+                    }
 
                 val chunk = bitmap.ninePatchChunk
                 if (chunk != null && NinePatch.isNinePatchChunk(chunk)) {
@@ -521,12 +461,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         } catch (_: Exception) {
-            woodenBackground(
-                radius = 22,
-                border = woodOutline,
-                borderWidth = 3,
-                innerHighlight = goldColor
-            )
+            GradientDrawable().apply {
+                setColor(backgroundColor)
+            }
         }
     }
 
@@ -538,36 +475,6 @@ class MainActivity : ComponentActivity() {
             setTextColor(goldColor)
             strokeColor = woodOutline
             strokeWidthPx = dp(4).toFloat()
-        }
-    }
-
-    private fun woodenBackground(
-        radius: Int,
-        border: Int,
-        borderWidth: Int,
-        innerHighlight: Int
-    ): LayerDrawable {
-        val outer = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(
-                woodLight,
-                woodColor,
-                woodDark
-            )
-        ).apply {
-            cornerRadius = dp(radius).toFloat()
-            setStroke(dp(borderWidth), border)
-        }
-
-        val innerTrim = GradientDrawable().apply {
-            setColor(Color.TRANSPARENT)
-            cornerRadius = dp((radius - 3).coerceAtLeast(4)).toFloat()
-            setStroke(dp(2), innerHighlight)
-        }
-
-        return LayerDrawable(arrayOf(outer, innerTrim)).apply {
-            val inset = dp(borderWidth)
-            setLayerInset(1, inset, inset, inset, inset)
         }
     }
 
@@ -591,10 +498,10 @@ class MainActivity : ComponentActivity() {
                 )
             ).apply {
                 cornerRadius = dp(16).toFloat()
-                setStroke(dp(3), goldDark)
+                setStroke(dp(3), woodDark)
             }
 
-            elevation = dp(3).toFloat()
+            elevation = dp(4).toFloat()
         }
     }
 
@@ -839,7 +746,7 @@ class OutlinedTextView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : AppCompatTextView(context, attrs, defStyleAttr) {
 
-    var strokeColor: Int = Color.parseColor("#22130C")
+    var strokeColor: Int = Color.parseColor("#1C100A")
     var strokeWidthPx: Float = 5f
 
     override fun onDraw(canvas: Canvas) {
