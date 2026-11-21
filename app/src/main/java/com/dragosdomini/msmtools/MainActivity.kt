@@ -1,5 +1,4 @@
-
-package com.dragosdomini.msmtools
+package com.cyndyrfirestudios.MIDI2MSM
 
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
@@ -14,20 +13,22 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,11 +37,11 @@ import java.io.IOException
 class MainActivity : ComponentActivity() {
 
     private var selectedMidi: Uri? = null
+    private var selectedName: String? = null
     private var convertedMsm: ByteArray? = null
 
     private lateinit var statusText: TextView
     private lateinit var selectedFileText: TextView
-    private lateinit var noteLengthSpinner: Spinner
     private lateinit var convertButton: Button
     private lateinit var loadingContainer: FrameLayout
     private lateinit var loadingFill: ImageView
@@ -51,19 +52,28 @@ class MainActivity : ComponentActivity() {
     private var bodyFont: Typeface = Typeface.DEFAULT
     private var headingFont: Typeface = Typeface.DEFAULT_BOLD
 
+    // Note length chips
+    private val noteOptions = listOf(
+        "1/8" to 8,
+        "1/16" to 16,
+        "1/32" to 32
+    )
+    private var selectedDivision = 8
+    private val noteChips = mutableListOf<TextView>()
+    private var chipsEnabled = true
+
     // Assets
     private var backgroundBitmap: Bitmap? = null
+    private var buttonBaseBitmap: Bitmap? = null
     private var panelBitmap: Bitmap? = null
     private var loadingBitmap: Bitmap? = null
     private var loadingBackgroundBitmap: Bitmap? = null
-
-    private val backgroundColor = Color.rgb(43, 70, 45)
-    private val darkGreen = Color.rgb(30, 51, 34)
 
     private val parchmentColor = Color.rgb(244, 226, 185)
     private val parchmentDark = Color.rgb(218, 194, 148)
 
     private val darkText = Color.rgb(69, 53, 39)
+    private val errorText = Color.rgb(140, 40, 30)
     private val creamText = Color.rgb(255, 244, 215)
     private val goldColor = Color.rgb(231, 184, 85)
 
@@ -78,13 +88,11 @@ class MainActivity : ComponentActivity() {
 
             if (uri != null) {
                 selectedMidi = uri
+                selectedName = displayName(uri)
                 convertedMsm = null
 
-                selectedFileText.text =
-                    uri.lastPathSegment ?: "MIDI file selected"
-
-                statusText.text =
-                    "Song selected. Ready to convert!"
+                selectedFileText.text = selectedName
+                setStatus("Song selected. Ready to convert!")
             }
         }
 
@@ -107,13 +115,32 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.statusBarColor = darkGreen
-        window.navigationBarColor = darkGreen
-        window.decorView.systemUiVisibility = 0
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+
+        // Restore selection after rotation.
+        savedInstanceState?.let {
+            it.getString("midi_uri")?.let { s -> selectedMidi = Uri.parse(s) }
+            selectedName = it.getString("midi_name")
+            selectedDivision = it.getInt("division", 8)
+        }
 
         loadFonts()
         loadAssets()
+
+        window.setBackgroundDrawable(
+            backgroundBitmap?.let { BackgroundDrawable(it) }
+                ?: ColorDrawable(Color.BLACK)
+        )
+
         buildInterface()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("midi_uri", selectedMidi?.toString())
+        outState.putString("midi_name", selectedName)
+        outState.putInt("division", selectedDivision)
     }
 
     private fun loadFonts() {
@@ -139,31 +166,16 @@ class MainActivity : ComponentActivity() {
 
     private fun loadAssets() {
 
-        // Full-screen background
-        backgroundBitmap = loadImage(
-            "images/background.jpg"
-        )
+        backgroundBitmap = loadImage("images/background.jpg")
+        buttonBaseBitmap = loadImage("images/button_base.png")
+        panelBitmap = loadImage("images/panel.png")
+        loadingBitmap = loadImage("images/loadbar.png")
+        loadingBackgroundBitmap = loadImage("images/loadbar_bg.png")
 
-        // Workshop panel
-        panelBitmap = loadImage(
-            "images/panel.png"
-        )
-
-        // Loading bar artwork
-        loadingBitmap = loadImage(
-            "images/loadbar.png"
-        )
-
-        loadingBackgroundBitmap = loadImage(
-            "images/loadbar_bg.png"
-        )
-
-        // Rotate the horizontal panel vertically.
+        // Rotate the panel vertically.
         panelBitmap = panelBitmap?.let { bitmap ->
 
-            val matrix = Matrix().apply {
-                postRotate(90f)
-            }
+            val matrix = Matrix().apply { postRotate(90f) }
 
             Bitmap.createBitmap(
                 bitmap,
@@ -187,6 +199,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun displayName(uri: Uri): String {
+        try {
+            contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(
+                        OpenableColumns.DISPLAY_NAME
+                    )
+                    if (index >= 0) {
+                        return cursor.getString(index)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return uri.lastPathSegment ?: "MIDI file selected"
+    }
+
     // --------------------------------------------------
     // FULL SCREEN BACKGROUND
     // --------------------------------------------------
@@ -196,20 +231,14 @@ class MainActivity : ComponentActivity() {
     ) : Drawable() {
 
         private val paint = Paint(
-            Paint.ANTI_ALIAS_FLAG or
-                Paint.FILTER_BITMAP_FLAG
+            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
         )
 
         override fun draw(canvas: Canvas) {
 
             val b = bounds
 
-            if (b.width() <= 0 || b.height() <= 0) {
-                return
-            }
-
-            // Cover the entire available area.
-            // Preserve the original image proportions.
+            if (b.width() <= 0 || b.height() <= 0) return
 
             val scale = maxOf(
                 b.width().toFloat() / bitmap.width,
@@ -219,21 +248,13 @@ class MainActivity : ComponentActivity() {
             val width = bitmap.width * scale
             val height = bitmap.height * scale
 
-            // Center the image.
             val left = b.centerX() - width / 2f
             val top = b.centerY() - height / 2f
-
-            val destination = RectF(
-                left,
-                top,
-                left + width,
-                top + height
-            )
 
             canvas.drawBitmap(
                 bitmap,
                 null,
-                destination,
+                RectF(left, top, left + width, top + height),
                 paint
             )
         }
@@ -251,9 +272,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @Deprecated("Deprecated graphics API")
-        override fun getOpacity(): Int {
-            return PixelFormat.OPAQUE
-        }
+        override fun getOpacity(): Int = PixelFormat.OPAQUE
     }
 
     // --------------------------------------------------
@@ -263,40 +282,22 @@ class MainActivity : ComponentActivity() {
     private fun buildInterface() {
 
         val container = LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
-
-            // The image completely replaces the green background.
-            // Green is only used if the image cannot be loaded.
-
-            background = backgroundBitmap?.let {
-                BackgroundDrawable(it)
-            } ?: GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(backgroundColor, darkGreen)
-            )
+            background = backgroundBitmap?.let { BackgroundDrawable(it) }
+                ?: ColorDrawable(Color.BLACK)
         }
 
         val scrollView = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
-
-            // Keep the background visible behind scrolling content.
             setBackgroundColor(Color.TRANSPARENT)
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-
             setBackgroundColor(Color.TRANSPARENT)
-
-            setPadding(
-                dp(16),
-                dp(20),
-                dp(16),
-                dp(28)
-            )
+            setPadding(dp(16), dp(20), dp(16), dp(28))
         }
 
         scrollView.addView(
@@ -316,21 +317,35 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        // HEADER
+        // Keep the layout phone-shaped on tablets.
+        val contentWidth = minOf(
+            resources.displayMetrics.widthPixels - dp(32),
+            dp(560)
+        )
 
-        root.addView(
-            makeText(
-                "MSM MIDI TOOLS",
-                29f,
-                creamText,
-                headingFont
-            ).apply {
+        // HEADER PLATE
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+
+            background = GradientDrawable().apply {
+                setColor(Color.argb(150, 24, 16, 8))
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(2), goldColor)
+            }
+        }
+
+        header.addView(
+            makeText("MSM MIDI TOOLS", 29f, creamText, headingFont).apply {
                 gravity = Gravity.CENTER
+                setShadowLayer(4f, 0f, 2f, Color.argb(200, 0, 0, 0))
             },
             matchWidth()
         )
 
-        root.addView(
+        header.addView(
             makeText(
                 "MIDI TO MONSTER COMPOSER",
                 13f,
@@ -338,40 +353,41 @@ class MainActivity : ComponentActivity() {
                 Typeface.create(bodyFont, Typeface.BOLD)
             ).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, dp(22))
+                setPadding(0, dp(4), 0, 0)
             },
             matchWidth()
+        )
+
+        root.addView(
+            header,
+            LinearLayout.LayoutParams(
+                contentWidth,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(18) }
         )
 
         // MAIN VERTICAL PANEL
 
         val workshop = LinearLayout(this).apply {
-
             orientation = LinearLayout.VERTICAL
+            setPadding(dp(25), dp(26), dp(25), dp(26))
 
-            setPadding(
-                dp(25),
-                dp(26),
-                dp(25),
-                dp(26)
-            )
-
-            background = panelBitmap?.let {
-                VerticalPanelDrawable(it)
-            } ?: fallbackPanel()
+            background = panelBitmap?.let { VerticalPanelDrawable(it) }
+                ?: fallbackPanel()
 
             elevation = dp(5).toFloat()
         }
 
-        root.addView(workshop, matchWidth())
+        root.addView(
+            workshop,
+            LinearLayout.LayoutParams(
+                contentWidth,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         workshop.addView(
-            makeText(
-                "SONG WORKSHOP",
-                22f,
-                darkText,
-                headingFont
-            ).apply {
+            makeText("SONG WORKSHOP", 22f, darkText, headingFont).apply {
                 gravity = Gravity.CENTER
             },
             matchWidth()
@@ -379,17 +395,12 @@ class MainActivity : ComponentActivity() {
 
         addDivider(workshop)
 
-        // SONG SELECTION
+        // 1. SONG SELECTION
 
         val fileCard = makeSection()
 
         fileCard.addView(
-            makeText(
-                "1. CHOOSE YOUR SONG",
-                18f,
-                darkText,
-                headingFont
-            ),
+            makeText("1. CHOOSE YOUR SONG", 18f, darkText, headingFont),
             matchWidth()
         )
 
@@ -398,9 +409,7 @@ class MainActivity : ComponentActivity() {
                 "Select a MIDI file from your device.",
                 14f,
                 darkText
-            ).apply {
-                setPadding(0, dp(8), 0, dp(13))
-            },
+            ).apply { setPadding(0, dp(8), 0, dp(13)) },
             matchWidth()
         )
 
@@ -419,43 +428,29 @@ class MainActivity : ComponentActivity() {
         )
 
         selectedFileText = makeText(
-            "No song selected yet.",
+            selectedName ?: "No song selected yet.",
             13f,
             darkText
         ).apply {
             gravity = Gravity.CENTER
             background = insetBackground()
-
-            setPadding(
-                dp(10),
-                dp(13),
-                dp(10),
-                dp(13)
-            )
+            setPadding(dp(10), dp(13), dp(10), dp(13))
         }
 
         fileCard.addView(
             selectedFileText,
-            matchWidth().apply {
-                topMargin = dp(10)
-            }
+            matchWidth().apply { topMargin = dp(10) }
         )
 
         workshop.addView(fileCard, matchWidth())
-
         addSpace(workshop, 15)
 
-        // NOTE SETTINGS
+        // 2. NOTE SETTINGS
 
         val settingsCard = makeSection()
 
         settingsCard.addView(
-            makeText(
-                "2. NOTE SETTINGS",
-                18f,
-                darkText,
-                headingFont
-            ),
+            makeText("2. NOTE SETTINGS", 18f, darkText, headingFont),
             matchWidth()
         )
 
@@ -464,41 +459,13 @@ class MainActivity : ComponentActivity() {
                 "Choose the shortest note length to preserve.",
                 14f,
                 darkText
-            ).apply {
-                setPadding(0, dp(8), 0, dp(12))
-            },
+            ).apply { setPadding(0, dp(8), 0, dp(12)) },
             matchWidth()
         )
 
-        noteLengthSpinner = Spinner(this).apply {
-
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                listOf(
-                    "1/8 note",
-                    "1/16 note",
-                    "1/32 note"
-                )
-            )
-
-            background = insetBackground()
-
-            setPadding(
-                dp(12),
-                dp(7),
-                dp(12),
-                dp(7)
-            )
-        }
-
-        settingsCard.addView(
-            noteLengthSpinner,
-            matchWidth(dp(55))
-        )
+        settingsCard.addView(buildNoteSelector(), matchWidth())
 
         workshop.addView(settingsCard, matchWidth())
-
         addSpace(workshop, 17)
 
         // CONVERT BUTTON
@@ -509,11 +476,7 @@ class MainActivity : ComponentActivity() {
 
         convertButton.textSize = 18f
 
-        workshop.addView(
-            convertButton,
-            matchWidth(dp(65))
-        )
-
+        workshop.addView(convertButton, matchWidth(dp(65)))
         addSpace(workshop, 17)
 
         // CONVERSION PROGRESS
@@ -521,12 +484,7 @@ class MainActivity : ComponentActivity() {
         val loadingCard = makeSection()
 
         loadingCard.addView(
-            makeText(
-                "CONVERSION PROGRESS",
-                18f,
-                darkText,
-                headingFont
-            ),
+            makeText("CONVERSION PROGRESS", 18f, darkText, headingFont),
             matchWidth()
         )
 
@@ -549,10 +507,7 @@ class MainActivity : ComponentActivity() {
         loadingBackground = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
-
-            loadingBackgroundBitmap?.let {
-                setImageBitmap(it)
-            }
+            loadingBackgroundBitmap?.let { setImageBitmap(it) }
         }
 
         loadingContainer.addView(
@@ -590,19 +545,14 @@ class MainActivity : ComponentActivity() {
         )
 
         // Preserve loading bar proportions.
-
         loadingContainer.post {
 
             val bitmap = loadingBackgroundBitmap
 
             if (bitmap != null && loadingContainer.width > 0) {
 
-                val ratio = bitmap.height.toFloat() /
-                    bitmap.width.toFloat()
-
-                val correctHeight = (
-                    loadingContainer.width * ratio
-                ).toInt()
+                val ratio = bitmap.height.toFloat() / bitmap.width.toFloat()
+                val correctHeight = (loadingContainer.width * ratio).toInt()
 
                 loadingContainer.layoutParams =
                     loadingContainer.layoutParams.apply {
@@ -611,13 +561,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        loadingCard.addView(
-            loadingContainer,
-            matchWidth()
-        )
-
+        loadingCard.addView(loadingContainer, matchWidth())
         workshop.addView(loadingCard, matchWidth())
-
         addSpace(workshop, 17)
 
         // STATUS PANEL
@@ -625,34 +570,27 @@ class MainActivity : ComponentActivity() {
         val statusCard = makeSection()
 
         statusCard.addView(
-            makeText(
-                "WORKSHOP STATUS",
-                18f,
-                darkText,
-                headingFont
-            ),
+            makeText("WORKSHOP STATUS", 18f, darkText, headingFont),
             matchWidth()
         )
 
         statusText = makeText(
-            "Choose a MIDI song to get started.",
+            if (selectedMidi != null) {
+                "Song selected. Ready to convert!"
+            } else {
+                "Choose a MIDI song to get started."
+            },
             14f,
             darkText
         ).apply {
             gravity = Gravity.CENTER
             background = insetBackground()
-
-            setPadding(
-                dp(10),
-                dp(15),
-                dp(10),
-                dp(15)
-            )
+            setPadding(dp(10), dp(15), dp(10), dp(15))
         }
 
         statusCard.addView(
             statusText,
-            matchWidth()
+            matchWidth().apply { topMargin = dp(8) }
         )
 
         workshop.addView(statusCard, matchWidth())
@@ -665,11 +603,73 @@ class MainActivity : ComponentActivity() {
             ).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(20), 0, 0)
+                setShadowLayer(3f, 0f, 1f, Color.argb(200, 0, 0, 0))
             },
             matchWidth()
         )
 
         setContentView(container)
+    }
+
+    // --------------------------------------------------
+    // NOTE LENGTH CHIPS
+    // --------------------------------------------------
+
+    private fun buildNoteSelector(): LinearLayout {
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        noteChips.clear()
+
+        noteOptions.forEachIndexed { index, (label, value) ->
+
+            val chip = makeText(label, 16f, darkText, headingFont).apply {
+                gravity = Gravity.CENTER
+
+                setOnClickListener {
+                    if (chipsEnabled) {
+                        selectedDivision = value
+                        refreshChips()
+                    }
+                }
+            }
+
+            noteChips.add(chip)
+
+            row.addView(
+                chip,
+                LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+                    if (index > 0) marginStart = dp(8)
+                }
+            )
+        }
+
+        refreshChips()
+        return row
+    }
+
+    private fun refreshChips() {
+
+        noteChips.forEachIndexed { index, chip ->
+
+            val selected = noteOptions[index].second == selectedDivision
+
+            chip.background = GradientDrawable().apply {
+                cornerRadius = dp(11).toFloat()
+
+                if (selected) {
+                    setColor(goldColor)
+                    setStroke(dp(3), Color.rgb(120, 82, 30))
+                } else {
+                    setColor(parchmentDark)
+                    setStroke(dp(1), Color.rgb(176, 144, 91))
+                }
+            }
+
+            chip.alpha = if (chipsEnabled) 1f else 0.6f
+        }
     }
 
     // --------------------------------------------------
@@ -703,23 +703,11 @@ class MainActivity : ComponentActivity() {
             val edgeX = (w * 0.16f).toInt()
             val edgeY = (h * 0.10f).toInt()
 
-            val srcX = intArrayOf(
-                0, edgeX, w - edgeX
-            )
+            val srcX = intArrayOf(0, edgeX, w - edgeX)
+            val srcY = intArrayOf(0, edgeY, h - edgeY)
 
-            val srcY = intArrayOf(
-                0, edgeY, h - edgeY
-            )
-
-            val borderX = minOf(
-                dp(25).toFloat(),
-                b.width() / 4f
-            )
-
-            val borderY = minOf(
-                dp(25).toFloat(),
-                b.height() / 4f
-            )
+            val borderX = minOf(dp(25).toFloat(), b.width() / 4f)
+            val borderY = minOf(dp(25).toFloat(), b.height() / 4f)
 
             val dstX = floatArrayOf(
                 b.left.toFloat(),
@@ -752,12 +740,7 @@ class MainActivity : ComponentActivity() {
                         dstY[row + 1]
                     )
 
-                    canvas.drawBitmap(
-                        bitmap,
-                        source,
-                        destination,
-                        paint
-                    )
+                    canvas.drawBitmap(bitmap, source, destination, paint)
                 }
             }
 
@@ -787,9 +770,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @Deprecated("Deprecated graphics API")
-        override fun getOpacity(): Int {
-            return PixelFormat.TRANSLUCENT
-        }
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 
     // --------------------------------------------------
@@ -802,16 +783,11 @@ class MainActivity : ComponentActivity() {
 
         loadingAnimator?.cancel()
 
-        val drawable = loadingFill.drawable as? ClipDrawable
-
-        if (drawable == null) return
+        val drawable = loadingFill.drawable as? ClipDrawable ?: return
 
         drawable.level = 1000
 
-        loadingAnimator = ValueAnimator.ofInt(
-            1000,
-            9500
-        ).apply {
+        loadingAnimator = ValueAnimator.ofInt(1000, 9500).apply {
 
             duration = 900L
             repeatCount = ValueAnimator.INFINITE
@@ -830,11 +806,7 @@ class MainActivity : ComponentActivity() {
         loadingAnimator?.cancel()
         loadingAnimator = null
 
-        loadingFill.drawable?.let {
-            if (it is ClipDrawable) {
-                it.level = 10000
-            }
-        }
+        (loadingFill.drawable as? ClipDrawable)?.level = 10000
     }
 
     private fun hideLoadingAnimation() {
@@ -844,15 +816,11 @@ class MainActivity : ComponentActivity() {
 
         loadingContainer.visibility = View.GONE
 
-        loadingFill.drawable?.let {
-            if (it is ClipDrawable) {
-                it.level = 0
-            }
-        }
+        (loadingFill.drawable as? ClipDrawable)?.level = 0
     }
 
     // --------------------------------------------------
-    // CARVED STONE BUTTONS
+    // BUTTONS
     // --------------------------------------------------
 
     private fun makeButton(
@@ -864,22 +832,37 @@ class MainActivity : ComponentActivity() {
 
             this.text = text
             textSize = 16f
-            typeface = bodyFont
+            typeface = headingFont
             setTextColor(Color.rgb(66, 55, 43))
 
             isAllCaps = false
             backgroundTintList = null
 
-            background = stoneButtonBackground()
+            background = buttonBaseBitmap?.let { bitmap ->
+                BitmapDrawable(resources, bitmap).apply {
+                    gravity = Gravity.FILL
+                    isFilterBitmap = true
+                }
+            } ?: stoneButtonBackground()
 
             elevation = dp(3).toFloat()
 
-            setPadding(
-                dp(12),
-                dp(5),
-                dp(12),
-                dp(5)
-            )
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+
+            // Press feedback: squish down, spring back.
+            setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN ->
+                        v.animate().scaleX(0.97f).scaleY(0.97f)
+                            .setDuration(70).start()
+
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL ->
+                        v.animate().scaleX(1f).scaleY(1f)
+                            .setDuration(110).start()
+                }
+                false
+            }
 
             setOnClickListener {
                 if (isEnabled) action()
@@ -887,11 +870,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stoneButtonBackground():
-        android.graphics.drawable.StateListDrawable {
+    private fun stoneButtonBackground(): StateListDrawable {
 
-        val states =
-            android.graphics.drawable.StateListDrawable()
+        val states = StateListDrawable()
 
         val normal = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
@@ -917,15 +898,8 @@ class MainActivity : ComponentActivity() {
             setStroke(dp(3), Color.rgb(78, 67, 52))
         }
 
-        states.addState(
-            intArrayOf(android.R.attr.state_pressed),
-            pressed
-        )
-
-        states.addState(
-            intArrayOf(),
-            normal
-        )
+        states.addState(intArrayOf(android.R.attr.state_pressed), pressed)
+        states.addState(intArrayOf(), normal)
 
         return states
     }
@@ -940,12 +914,7 @@ class MainActivity : ComponentActivity() {
 
             orientation = LinearLayout.VERTICAL
 
-            setPadding(
-                dp(14),
-                dp(15),
-                dp(14),
-                dp(15)
-            )
+            setPadding(dp(14), dp(15), dp(14), dp(15))
 
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -955,10 +924,7 @@ class MainActivity : ComponentActivity() {
                 )
             ).apply {
                 cornerRadius = dp(15).toFloat()
-                setStroke(
-                    dp(2),
-                    Color.rgb(185, 155, 105)
-                )
+                setStroke(dp(2), Color.rgb(185, 155, 105))
             }
 
             elevation = dp(2).toFloat()
@@ -969,10 +935,7 @@ class MainActivity : ComponentActivity() {
 
         return GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(
-                parchmentColor,
-                parchmentDark
-            )
+            intArrayOf(parchmentColor, parchmentDark)
         ).apply {
             cornerRadius = dp(18).toFloat()
             setStroke(dp(3), goldColor)
@@ -999,10 +962,7 @@ class MainActivity : ComponentActivity() {
         return GradientDrawable().apply {
             setColor(parchmentDark)
             cornerRadius = dp(9).toFloat()
-            setStroke(
-                dp(1),
-                Color.rgb(176, 144, 91)
-            )
+            setStroke(dp(1), Color.rgb(176, 144, 91))
         }
     }
 
@@ -1012,31 +972,19 @@ class MainActivity : ComponentActivity() {
             View(this).apply {
                 background = GradientDrawable(
                     GradientDrawable.Orientation.LEFT_RIGHT,
-                    intArrayOf(
-                        parchmentDark,
-                        goldColor,
-                        parchmentDark
-                    )
+                    intArrayOf(parchmentDark, goldColor, parchmentDark)
                 )
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(2)
             ).apply {
-                setMargins(
-                    dp(5),
-                    dp(13),
-                    dp(5),
-                    dp(17)
-                )
+                setMargins(dp(5), dp(13), dp(5), dp(17))
             }
         )
     }
 
-    private fun addSpace(
-        parent: LinearLayout,
-        height: Int
-    ) {
+    private fun addSpace(parent: LinearLayout, height: Int) {
 
         parent.addView(
             View(this),
@@ -1058,10 +1006,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
 
-        return (
-            value * resources.displayMetrics.density
-        ).toInt()
+    // --------------------------------------------------
+    // UI HELPERS
+    // --------------------------------------------------
+
+    private fun setStatus(message: String, isError: Boolean = false) {
+        statusText.text = message
+        statusText.setTextColor(if (isError) errorText else darkText)
+    }
+
+    private fun setBusy(busy: Boolean) {
+        convertButton.isEnabled = !busy
+        convertButton.alpha = if (busy) 0.6f else 1f
+        chipsEnabled = !busy
+        refreshChips()
+    }
+
+    // Runs on the UI thread, but only if the screen still exists.
+    private fun ui(block: () -> Unit) {
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed) block()
+        }
     }
 
     // --------------------------------------------------
@@ -1073,25 +1041,15 @@ class MainActivity : ComponentActivity() {
         val midiUri = selectedMidi
 
         if (midiUri == null) {
-            statusText.text =
-                "Please select a MIDI file first."
+            setStatus("Please select a MIDI file first.", true)
             return
         }
 
-        convertButton.isEnabled = false
-        noteLengthSpinner.isEnabled = false
-
-        statusText.text = "Reading your song..."
-
+        setBusy(true)
+        setStatus("Reading your song...")
         startLoadingAnimation()
 
-        val noteDivision = when (
-            noteLengthSpinner.selectedItemPosition
-        ) {
-            1 -> 16
-            2 -> 32
-            else -> 8
-        }
+        val noteDivision = selectedDivision
 
         Thread {
 
@@ -1100,57 +1058,59 @@ class MainActivity : ComponentActivity() {
                 val midiBytes = contentResolver
                     .openInputStream(midiUri)
                     ?.use { it.readBytes() }
-                    ?: throw IOException(
-                        "Could not open MIDI file."
-                    )
+                    ?: throw IOException("Could not open MIDI file.")
 
-                runOnUiThread {
-                    statusText.text = "Reading MIDI tracks..."
-                }
+                ui { setStatus("Reading MIDI tracks...") }
 
                 val parsedMidi = MidiReader.read(midiBytes)
 
-                runOnUiThread {
-                    statusText.text =
+                ui {
+                    setStatus(
                         "Converting ${parsedMidi.tracks.size} instrument tracks..."
+                    )
                 }
 
                 val msmBytes = MsmConverter.convert(
-                    context = this,
+                    context = this@MainActivity,
                     midi = parsedMidi,
                     minimumNote = noteDivision
                 )
 
-                runOnUiThread {
+                ui {
 
                     convertedMsm = msmBytes
 
                     stopLoadingAnimation()
 
-                    statusText.text =
+                    setStatus(
                         "Conversion complete!\n" +
-                        "${parsedMidi.tracks.size} instrument tracks processed."
+                            "${parsedMidi.tracks.size} instrument tracks processed."
+                    )
 
-                    convertButton.isEnabled = true
-                    noteLengthSpinner.isEnabled = true
+                    setBusy(false)
 
-                    saveMsm.launch("converted_song.msm")
+                    val baseName = (selectedName ?: "converted_song")
+                        .substringBeforeLast('.')
+                        .ifBlank { "converted_song" }
+
+                    saveMsm.launch("$baseName.msm")
                 }
 
             } catch (e: Exception) {
 
-                runOnUiThread {
+                ui {
 
                     convertedMsm = null
 
                     hideLoadingAnimation()
 
-                    statusText.text =
+                    setStatus(
                         "Conversion failed:\n" +
-                        (e.message ?: "Unknown error")
+                            (e.message ?: "Unknown error"),
+                        true
+                    )
 
-                    convertButton.isEnabled = true
-                    noteLengthSpinner.isEnabled = true
+                    setBusy(false)
                 }
             }
 
@@ -1166,8 +1126,7 @@ class MainActivity : ComponentActivity() {
         val data = convertedMsm
 
         if (data == null) {
-            statusText.text =
-                "There is no converted song to save."
+            setStatus("There is no converted song to save.", true)
             return
         }
 
@@ -1176,17 +1135,13 @@ class MainActivity : ComponentActivity() {
             contentResolver.openOutputStream(uri)?.use {
                 it.write(data)
                 it.flush()
-            } ?: throw IOException(
-                "Could not create output file."
-            )
+            } ?: throw IOException("Could not create output file.")
 
-            statusText.text =
-                "Your MSM song was saved successfully!"
+            setStatus("Your MSM song was saved successfully!")
 
         } catch (e: Exception) {
 
-            statusText.text =
-                "Could not save the file:\n${e.message}"
+            setStatus("Could not save the file:\n${e.message}", true)
         }
     }
 
