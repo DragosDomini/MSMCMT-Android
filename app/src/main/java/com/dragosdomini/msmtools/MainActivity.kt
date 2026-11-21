@@ -1,12 +1,18 @@
 package com.dragosdomini.msmtools
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.NinePatch
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.NinePatchDrawable
 import android.graphics.drawable.StateListDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -178,25 +184,19 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        // Main wooden workshop panel
+        // Main menu panel using assets/images/panel.png with fallback
 
         val mainPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
 
             setPadding(
-                dp(15),
-                dp(18),
-                dp(15),
-                dp(18)
+                dp(20),
+                dp(20),
+                dp(20),
+                dp(20)
             )
 
-            background = woodenBackground(
-                radius = 22,
-                border = woodOutline,
-                borderWidth = 3,
-                innerHighlight = goldColor
-            )
-
+            background = loadPanelBackground("images/panel.png")
             elevation = dp(8).toFloat()
         }
 
@@ -490,6 +490,44 @@ class MainActivity : ComponentActivity() {
         )
 
         setContentView(scrollView)
+    }
+
+    private fun loadPanelBackground(
+        assetPath: String = "images/panel.png"
+    ): Drawable {
+        return try {
+            assets.open(assetPath).use { inputStream ->
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                    ?: return woodenBackground(
+                        radius = 22,
+                        border = woodOutline,
+                        borderWidth = 3,
+                        innerHighlight = goldColor
+                    )
+
+                val chunk = bitmap.ninePatchChunk
+                if (chunk != null && NinePatch.isNinePatchChunk(chunk)) {
+                    NinePatchDrawable(
+                        resources,
+                        bitmap,
+                        chunk,
+                        Rect(),
+                        null
+                    )
+                } else {
+                    BitmapDrawable(resources, bitmap).apply {
+                        gravity = Gravity.FILL
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            woodenBackground(
+                radius = 22,
+                border = woodOutline,
+                borderWidth = 3,
+                innerHighlight = goldColor
+            )
+        }
     }
 
     private fun makeStepHeader(titleText: String): OutlinedTextView {
