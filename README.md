@@ -1,58 +1,133 @@
-# My Singing Monsters Composer MIDI Tools/MIDI Converter
-Warning: Before use please backup all your song in My Singing Monster: Composer<br />
-It's more like helper program instead full converter
-<br />
+MSM MIDI Tools for Android
 
-Python dependencies:
-```
-mido
-lz4
-miditoolkit (only for msm2mid)
-```
-## mid2msm
+An Android application for converting Standard MIDI Files into My Singing Monsters Composer (.msm) compositions.
 
-Convert MIDI file to MSM file
+This project is an Android/Kotlin adaptation of the MIDI-to-MSM workflow from the original My Singing Monsters Composer MIDI Tools project. It brings the conversion process into an Android app, with a native file picker, note-length settings, instrument/monster mapping, and an export workflow.
 
-Usage:
-```
-python mid2msm.py MIDIFILE.mid
-```
+«Important: Back up your existing My Singing Monsters Composer songs before importing or testing converted files. Compatibility can vary depending on the MIDI arrangement and game format.»
 
-For more information:
-```
-python mid2msm.py -h
-```
-<br>
+Features
 
-### Creating MIDI File
+- Select MIDI files directly from Android storage.
+- Read MIDI Format 0 and Format 1 files.
+- Parse individual MIDI tracks and instrument channels.
+- Detect MIDI instrument program changes.
+- Separate instrument parts instead of combining every note into one monster.
+- Automatically match MIDI instruments to monsters using the bundled "mdata.json" database.
+- Convert MIDI pitches and note timing into MSM song data.
+- Choose minimum note lengths:
+  - 1/8
+  - 1/16
+  - 1/32
+- Generate and compress MSM data using LZ4.
+- Save converted compositions directly to device storage.
+- Custom Android interface inspired by My Singing Monsters Composer.
 
-- MIDI file must be in Format 1 (Monster per track)
-- Tested on TPQN 960
-- MIDI notes from A#3(58) to C6(84)
-    - C2 and C3 will be mapped to C4 and C5
-    - C6 will be mapped back to C5
-- MIDI controllers as:
-    - 102 for X
-    - 103 for Y
-    - 104 for flip (1 - true, 0 - false)
-    - 105 for muted (1 - true, 0 - false)
-- Make sure all notes are in grid
-- Select a instrument: <a href="docs/instrument_table.md">Instrument table</a>
-- You can specify min note length (1/8, 1/16, 1/32)
+Instrument and Monster Assignment
 
-## msm2mid
+The MIDI reader does not simply combine every note in a file into one part.
 
-Convert MSM file to MIDI file
+Instead, it processes MIDI channels and instrument program changes, creating separate parts for each channel/instrument/bank combination containing notes.
 
-Key signatures other than C Major/A Minor is not currently supported
+The converter then checks the bundled monster database ("mdata.json") to find the corresponding monster.
 
-Usage:
-```
-python msm2mid.py MSMFILE.msm
-```
+For example:
 
-For more information:
-```
-python msm2mid.py -h
-```
-<br>
+MIDI instrument| Intended monster
+Electric guitar| Riff
+Bass guitar| Rare Riff
+
+These are examples of the intended instrument-to-monster matching. The actual assignment depends on the program and bank values available in the monster database.
+
+If no matching monster exists, conversion reports an error rather than silently assigning an unrelated monster.
+
+MIDI Compatibility
+
+Current supported features and limitations:
+
+- MIDI Format 0 and Format 1.
+- PPQ-based MIDI timing.
+- MIDI note pitches from 36–96, with pitch remapping into the Composer range.
+- MIDI program changes and bank selection.
+- MIDI channel separation.
+- Note lengths of 1/8, 1/16 and 1/32.
+- Tempo and time-signature metadata.
+
+Current limitations
+
+- SMPTE-based MIDI timing is not supported.
+- Notes outside the supported pitch range cannot be converted.
+- Notes shorter than the selected minimum note division may cause conversion errors.
+- Instrument assignment requires a matching program/bank entry in "mdata.json".
+- The generated song currently uses the C major/A minor key signature setting.
+- The Android application currently focuses on MIDI-to-MSM conversion. The original Python project's MSM-to-MIDI functionality is not included in this Android application.
+
+Building the Android Application
+
+Requirements
+
+- Android Studio
+- Android SDK Platform 35
+- JDK 17
+- Gradle wrapper included in the repository
+
+Build using Gradle
+
+From the repository root:
+
+./gradlew :app:assembleDebug
+
+On Windows:
+
+gradlew.bat :app:assembleDebug
+
+The generated APK will be located at:
+
+app/build/outputs/apk/debug/app-debug.apk
+
+You can also open the repository in Android Studio and run the application on a compatible Android device or emulator.
+
+Project Structure
+
+app/
+  src/main/
+    java/com/dragosdomini/msmtools/
+      MainActivity.kt
+      MidiReader.kt
+      MsmConverter.kt
+
+    assets/
+      mdata.json
+      images/
+      fonts/
+
+Main Components
+
+- MainActivity.kt — Android interface, MIDI file selection, conversion controls and file export.
+- MidiReader.kt — MIDI parsing, channel processing, note extraction and instrument separation.
+- MsmConverter.kt — Monster assignment, note conversion, MSM structure generation and LZ4 compression.
+- mdata.json — Monster information and MIDI instrument mapping.
+
+Credits and Original Project
+
+This Android application builds upon the original MIDI-to-MSM conversion project:
+
+Original project:
+https://github.com/ar0x65FF/msmctools
+
+Original author:
+"ar0x65FF" (https://github.com/ar0x65FF)
+
+Credit is retained for the original Python converter's format research, MIDI-to-MSM conversion approach, note mapping and song structure.
+
+The Android application, Kotlin MIDI reader, Android interface and Android integration are maintained in this repository.
+
+Please refer to the original repository for its licensing and usage terms. This README does not replace or change the original project's license.
+
+Disclaimer
+
+My Singing Monsters and My Singing Monsters Composer are properties of their respective owners.
+
+This is an independent community project and is not affiliated with or endorsed by Big Blue Bubble or the game's publishers.
+
+Always maintain backups of your compositions before importing converted files.
