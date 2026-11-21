@@ -2,11 +2,11 @@
 package com.dragosdomini.msmtools
 
 import android.animation.ValueAnimator
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -44,21 +44,19 @@ class MainActivity : ComponentActivity() {
     private lateinit var convertButton: Button
     private lateinit var loadingContainer: FrameLayout
     private lateinit var loadingFill: ImageView
+    private lateinit var loadingBackground: ImageView
 
     private var loadingAnimator: ValueAnimator? = null
 
-    private var bodyFont: Typeface = Typeface.create(
-        "sans-serif-rounded",
-        Typeface.NORMAL
-    )
+    private var bodyFont: Typeface = Typeface.DEFAULT
+    private var headingFont: Typeface = Typeface.DEFAULT_BOLD
 
     private var panelBitmap: Bitmap? = null
     private var loadingBitmap: Bitmap? = null
     private var loadingBackgroundBitmap: Bitmap? = null
 
-    private val backgroundColor = Color.rgb(48, 76, 48)
-    private val darkGreen = Color.rgb(34, 55, 37)
-    private val lightGreen = Color.rgb(112, 151, 76)
+    private val backgroundColor = Color.rgb(43, 70, 45)
+    private val darkGreen = Color.rgb(30, 51, 34)
 
     private val parchmentColor = Color.rgb(244, 226, 185)
     private val parchmentDark = Color.rgb(218, 194, 148)
@@ -111,24 +109,59 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = darkGreen
         window.decorView.systemUiVisibility = 0
 
+        loadFonts()
+        loadAssets()
+
+        buildInterface()
+    }
+
+    private fun loadFonts() {
+
         bodyFont = try {
             Typeface.createFromAsset(
                 assets,
                 "fonts/Fredoka-VariableFont_wdth,wght.ttf"
             )
         } catch (_: Exception) {
-            Typeface.create(
-                "sans-serif-rounded",
-                Typeface.NORMAL
-            )
+            Typeface.create("sans-serif-rounded", Typeface.NORMAL)
         }
 
+        headingFont = try {
+            Typeface.createFromAsset(
+                assets,
+                "fonts/Hobeaux-Bold.otf"
+            )
+        } catch (_: Exception) {
+            Typeface.create(bodyFont, Typeface.BOLD)
+        }
+    }
+
+    private fun loadAssets() {
+
         panelBitmap = loadImage("images/panel.png")
+
         loadingBitmap = loadImage("images/loadbar.png")
+
         loadingBackgroundBitmap =
             loadImage("images/loadbar_bg.png")
 
-        buildInterface()
+        // Rotate the horizontal panel into a vertical panel.
+        panelBitmap = panelBitmap?.let { bitmap ->
+
+            val matrix = Matrix().apply {
+                postRotate(90f)
+            }
+
+            Bitmap.createBitmap(
+                bitmap,
+                0,
+                0,
+                bitmap.width,
+                bitmap.height,
+                matrix,
+                true
+            )
+        }
     }
 
     private fun loadImage(path: String): Bitmap? {
@@ -169,10 +202,10 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
 
             setPadding(
+                dp(16),
                 dp(20),
-                dp(25),
-                dp(20),
-                dp(30)
+                dp(16),
+                dp(28)
             )
         }
 
@@ -200,10 +233,9 @@ class MainActivity : ComponentActivity() {
                 "MSM MIDI TOOLS",
                 29f,
                 creamText,
-                Typeface.BOLD
+                headingFont
             ).apply {
                 gravity = Gravity.CENTER
-                letterSpacing = 0.025f
             },
             matchWidth()
         )
@@ -216,35 +248,29 @@ class MainActivity : ComponentActivity() {
                 Typeface.BOLD
             ).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(7), 0, dp(25))
+                setPadding(0, dp(6), 0, dp(22))
             },
             matchWidth()
         )
 
-        // MAIN WORKSHOP
+        // MAIN VERTICAL PANEL
 
         val workshop = LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
 
             setPadding(
-                dp(15),
-                dp(17),
-                dp(15),
-                dp(17)
+                dp(25),
+                dp(26),
+                dp(25),
+                dp(26)
             )
 
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(
-                    parchmentColor,
-                    parchmentDark
-                )
-            ).apply {
-                cornerRadius = dp(19).toFloat()
-                setStroke(dp(2), goldColor)
-            }
+            background = panelBitmap?.let {
+                VerticalPanelDrawable(it)
+            } ?: fallbackPanel()
 
-            elevation = dp(6).toFloat()
+            elevation = dp(5).toFloat()
         }
 
         root.addView(workshop, matchWidth())
@@ -252,9 +278,9 @@ class MainActivity : ComponentActivity() {
         workshop.addView(
             makeText(
                 "SONG WORKSHOP",
-                21f,
+                22f,
                 darkText,
-                Typeface.BOLD
+                headingFont
             ).apply {
                 gravity = Gravity.CENTER
             },
@@ -263,16 +289,16 @@ class MainActivity : ComponentActivity() {
 
         addDivider(workshop)
 
-        // MIDI FILE SECTION
+        // SONG SELECTION
 
         val fileCard = makeSection()
 
         fileCard.addView(
             makeText(
                 "1. CHOOSE YOUR SONG",
-                17f,
+                18f,
                 darkText,
-                Typeface.BOLD
+                headingFont
             ),
             matchWidth()
         )
@@ -283,7 +309,7 @@ class MainActivity : ComponentActivity() {
                 14f,
                 darkText
             ).apply {
-                setPadding(0, dp(7), 0, dp(13))
+                setPadding(0, dp(8), 0, dp(13))
             },
             matchWidth()
         )
@@ -312,9 +338,9 @@ class MainActivity : ComponentActivity() {
 
             setPadding(
                 dp(10),
-                dp(12),
+                dp(13),
                 dp(10),
-                dp(12)
+                dp(13)
             )
         }
 
@@ -327,7 +353,7 @@ class MainActivity : ComponentActivity() {
 
         workshop.addView(fileCard, matchWidth())
 
-        addSpace(workshop, 14)
+        addSpace(workshop, 15)
 
         // NOTE SETTINGS
 
@@ -336,9 +362,9 @@ class MainActivity : ComponentActivity() {
         settingsCard.addView(
             makeText(
                 "2. NOTE SETTINGS",
-                17f,
+                18f,
                 darkText,
-                Typeface.BOLD
+                headingFont
             ),
             matchWidth()
         )
@@ -349,12 +375,13 @@ class MainActivity : ComponentActivity() {
                 14f,
                 darkText
             ).apply {
-                setPadding(0, dp(7), 0, dp(12))
+                setPadding(0, dp(8), 0, dp(12))
             },
             matchWidth()
         )
 
         noteLengthSpinner = Spinner(this).apply {
+
             adapter = ArrayAdapter(
                 this@MainActivity,
                 android.R.layout.simple_spinner_dropdown_item,
@@ -366,12 +393,18 @@ class MainActivity : ComponentActivity() {
             )
 
             background = insetBackground()
-            setPadding(dp(12), dp(6), dp(12), dp(6))
+
+            setPadding(
+                dp(12),
+                dp(7),
+                dp(12),
+                dp(7)
+            )
         }
 
         settingsCard.addView(
             noteLengthSpinner,
-            matchWidth(dp(52))
+            matchWidth(dp(55))
         )
 
         workshop.addView(settingsCard, matchWidth())
@@ -393,16 +426,16 @@ class MainActivity : ComponentActivity() {
 
         addSpace(workshop, 17)
 
-        // LOADING BAR SECTION
+        // CONVERSION PROGRESS
 
         val loadingCard = makeSection()
 
         loadingCard.addView(
             makeText(
                 "CONVERSION PROGRESS",
-                17f,
+                18f,
                 darkText,
-                Typeface.BOLD
+                headingFont
             ),
             matchWidth()
         )
@@ -414,24 +447,18 @@ class MainActivity : ComponentActivity() {
                 darkText
             ).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(8), 0, dp(10))
+                setPadding(0, dp(9), 0, dp(12))
             },
             matchWidth()
         )
 
         loadingContainer = FrameLayout(this).apply {
-            background = GradientDrawable().apply {
-                setColor(Color.TRANSPARENT)
-                cornerRadius = dp(8).toFloat()
-            }
-
             visibility = View.GONE
         }
 
-        // Background artwork
-
-        val loadingBackground = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_XY
+        loadingBackground = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
 
             loadingBackgroundBitmap?.let {
                 setImageBitmap(it)
@@ -446,12 +473,13 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        // Animated fill artwork
-
         loadingFill = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_XY
+
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
 
             loadingBitmap?.let { bitmap ->
+
                 val drawable = ClipDrawable(
                     BitmapDrawable(resources, bitmap),
                     Gravity.LEFT,
@@ -459,7 +487,6 @@ class MainActivity : ComponentActivity() {
                 )
 
                 drawable.level = 0
-
                 setImageDrawable(drawable)
             }
         }
@@ -472,15 +499,35 @@ class MainActivity : ComponentActivity() {
             )
         )
 
+        // Calculate height from the original background ratio.
+        // This prevents the loading artwork from being stretched.
+
+        loadingContainer.post {
+
+            val bitmap = loadingBackgroundBitmap
+
+            if (bitmap != null && loadingContainer.width > 0) {
+
+                val ratio = bitmap.height.toFloat() /
+                    bitmap.width.toFloat()
+
+                val correctHeight = (
+                    loadingContainer.width * ratio
+                ).toInt()
+
+                loadingContainer.layoutParams =
+                    loadingContainer.layoutParams.apply {
+                        height = correctHeight
+                    }
+            }
+        }
+
         loadingCard.addView(
             loadingContainer,
-            matchWidth(dp(32))
-        )
-
-        workshop.addView(
-            loadingCard,
             matchWidth()
         )
+
+        workshop.addView(loadingCard, matchWidth())
 
         addSpace(workshop, 17)
 
@@ -491,9 +538,9 @@ class MainActivity : ComponentActivity() {
         statusCard.addView(
             makeText(
                 "WORKSHOP STATUS",
-                17f,
+                18f,
                 darkText,
-                Typeface.BOLD
+                headingFont
             ),
             matchWidth()
         )
@@ -519,10 +566,7 @@ class MainActivity : ComponentActivity() {
             matchWidth()
         )
 
-        workshop.addView(
-            statusCard,
-            matchWidth()
-        )
+        workshop.addView(statusCard, matchWidth())
 
         root.addView(
             makeText(
@@ -531,7 +575,7 @@ class MainActivity : ComponentActivity() {
                 creamText
             ).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(22), 0, 0)
+                setPadding(0, dp(20), 0, 0)
             },
             matchWidth()
         )
@@ -540,7 +584,132 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // ANIMATED LOADING BAR
+    // VERTICAL PANEL DRAWABLE
+    // Uses rotated panel.png with preserved borders.
+    // --------------------------------------------------
+
+    private inner class VerticalPanelDrawable(
+        private val bitmap: Bitmap
+    ) : Drawable() {
+
+        private val paint = Paint(
+            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
+        )
+
+        private val interiorPaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = parchmentColor
+            alpha = 244
+        }
+
+        override fun draw(canvas: Canvas) {
+
+            val b = bounds
+
+            if (b.width() <= 0 || b.height() <= 0) return
+
+            val w = bitmap.width
+            val h = bitmap.height
+
+            val edgeX = (w * 0.16f).toInt()
+            val edgeY = (h * 0.10f).toInt()
+
+            val srcX = intArrayOf(
+                0, edgeX, w - edgeX
+            )
+
+            val srcY = intArrayOf(
+                0, edgeY, h - edgeY
+            )
+
+            val borderX = minOf(
+                dp(25).toFloat(),
+                b.width() / 4f
+            )
+
+            val borderY = minOf(
+                dp(25).toFloat(),
+                b.height() / 4f
+            )
+
+            val dstX = floatArrayOf(
+                b.left.toFloat(),
+                b.left + borderX,
+                b.right - borderX,
+                b.right.toFloat()
+            )
+
+            val dstY = floatArrayOf(
+                b.top.toFloat(),
+                b.top + borderY,
+                b.bottom - borderY,
+                b.bottom.toFloat()
+            )
+
+            // Draw all nine sections of the vertical artwork.
+
+            for (row in 0..2) {
+                for (column in 0..2) {
+
+                    val source = Rect(
+                        srcX[column],
+                        srcY[row],
+                        if (column == 2) w else srcX[column + 1],
+                        if (row == 2) h else srcY[row + 1]
+                    )
+
+                    val destination = RectF(
+                        dstX[column],
+                        dstY[row],
+                        dstX[column + 1],
+                        dstY[row + 1]
+                    )
+
+                    canvas.drawBitmap(
+                        bitmap,
+                        source,
+                        destination,
+                        paint
+                    )
+                }
+            }
+
+            // Translucent interior keeps the text readable.
+
+            canvas.drawRoundRect(
+                RectF(
+                    b.left + dp(24).toFloat(),
+                    b.top + dp(24).toFloat(),
+                    b.right - dp(24).toFloat(),
+                    b.bottom - dp(24).toFloat()
+                ),
+                dp(12).toFloat(),
+                dp(12).toFloat(),
+                interiorPaint
+            )
+        }
+
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+            invalidateSelf()
+        }
+
+        override fun setColorFilter(
+            colorFilter: android.graphics.ColorFilter?
+        ) {
+            paint.colorFilter = colorFilter
+            invalidateSelf()
+        }
+
+        @Deprecated("Deprecated graphics API")
+        override fun getOpacity(): Int {
+            return PixelFormat.TRANSLUCENT
+        }
+    }
+
+    // --------------------------------------------------
+    // LOADING BAR ANIMATION
     // --------------------------------------------------
 
     private fun startLoadingAnimation() {
@@ -551,9 +720,7 @@ class MainActivity : ComponentActivity() {
 
         val drawable = loadingFill.drawable as? ClipDrawable
 
-        if (drawable == null) {
-            return
-        }
+        if (drawable == null) return
 
         drawable.level = 1000
 
@@ -566,10 +733,10 @@ class MainActivity : ComponentActivity() {
             repeatCount = ValueAnimator.INFINITE
             repeatMode = ValueAnimator.REVERSE
 
-            addUpdateListener { animator ->
+            addUpdateListener {
 
                 drawable.level =
-                    animator.animatedValue as Int
+                    it.animatedValue as Int
             }
 
             start()
@@ -603,7 +770,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // BUTTON ARTWORK
+    // CARVED STONE BUTTONS
     // --------------------------------------------------
 
     private fun makeButton(
@@ -616,19 +783,14 @@ class MainActivity : ComponentActivity() {
             this.text = text
             textSize = 16f
             typeface = bodyFont
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(66, 55, 43))
+
             isAllCaps = false
+            backgroundTintList = null
 
-            background = panelBitmap?.let {
-                NineSlicePanelDrawable(it)
-            } ?: GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(lightGreen, darkGreen)
-            ).apply {
-                cornerRadius = dp(12).toFloat()
-            }
+            background = stoneButtonBackground()
 
-            elevation = dp(4).toFloat()
+            elevation = dp(3).toFloat()
 
             setPadding(
                 dp(12),
@@ -643,120 +805,64 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // --------------------------------------------------
-    // NINE-SLICE PANEL DRAWABLE
-    // --------------------------------------------------
+    private fun stoneButtonBackground():
+        android.graphics.drawable.StateListDrawable {
 
-    private class NineSlicePanelDrawable(
-        private val bitmap: Bitmap
-    ) : Drawable() {
+        val states =
+            android.graphics.drawable.StateListDrawable()
 
-        private val paint = Paint(
-            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG
+        val normal = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                Color.rgb(220, 211, 190),
+                Color.rgb(168, 158, 137),
+                Color.rgb(133, 123, 105)
+            )
+        ).apply {
+            cornerRadius = dp(13).toFloat()
+            setStroke(dp(3), Color.rgb(91, 78, 60))
+        }
+
+        val pressed = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                Color.rgb(130, 119, 100),
+                Color.rgb(164, 153, 132),
+                Color.rgb(185, 174, 151)
+            )
+        ).apply {
+            cornerRadius = dp(13).toFloat()
+            setStroke(dp(3), Color.rgb(78, 67, 52))
+        }
+
+        states.addState(
+            intArrayOf(android.R.attr.state_pressed),
+            pressed
         )
 
-        private val edge = minOf(
-            bitmap.width,
-            bitmap.height
-        ) / 6
+        states.addState(
+            intArrayOf(),
+            normal
+        )
 
-        override fun draw(canvas: Canvas) {
-
-            val bounds = bounds
-
-            if (bounds.width() <= 0 || bounds.height() <= 0) {
-                return
-            }
-
-            val w = bitmap.width
-            val h = bitmap.height
-            val e = edge
-
-            val src = arrayOf(
-                Rect(0, 0, e, e),
-                Rect(e, 0, w - e, e),
-                Rect(w - e, 0, w, e),
-
-                Rect(0, e, e, h - e),
-                Rect(e, e, w - e, h - e),
-                Rect(w - e, e, w, h - e),
-
-                Rect(0, h - e, e, h),
-                Rect(e, h - e, w - e, h),
-                Rect(w - e, h - e, w, h)
-            )
-
-            val dx = minOf(e.toFloat(), bounds.width() / 3f)
-            val dy = minOf(e.toFloat(), bounds.height() / 3f)
-
-            val x = floatArrayOf(
-                bounds.left.toFloat(),
-                bounds.left + dx,
-                bounds.right - dx,
-                bounds.right.toFloat()
-            )
-
-            val y = floatArrayOf(
-                bounds.top.toFloat(),
-                bounds.top + dy,
-                bounds.bottom - dy,
-                bounds.bottom.toFloat()
-            )
-
-            var index = 0
-
-            for (row in 0..2) {
-                for (column in 0..2) {
-
-                    canvas.drawBitmap(
-                        bitmap,
-                        src[index],
-                        RectF(
-                            x[column],
-                            y[row],
-                            x[column + 1],
-                            y[row + 1]
-                        ),
-                        paint
-                    )
-
-                    index++
-                }
-            }
-        }
-
-        override fun setAlpha(alpha: Int) {
-            paint.alpha = alpha
-            invalidateSelf()
-        }
-
-        override fun setColorFilter(
-            colorFilter: android.graphics.ColorFilter?
-        ) {
-            paint.colorFilter = colorFilter
-            invalidateSelf()
-        }
-
-        @Deprecated("Deprecated graphics API")
-        override fun getOpacity(): Int {
-            return PixelFormat.TRANSLUCENT
-        }
+        return states
     }
 
     // --------------------------------------------------
-    // UI HELPERS
+    // CARD STYLING
     // --------------------------------------------------
 
     private fun makeSection(): LinearLayout {
 
         return LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
 
             setPadding(
-                dp(13),
                 dp(14),
-                dp(13),
-                dp(14)
+                dp(15),
+                dp(14),
+                dp(15)
             )
 
             background = GradientDrawable(
@@ -766,12 +872,28 @@ class MainActivity : ComponentActivity() {
                     parchmentColor
                 )
             ).apply {
-                cornerRadius = dp(13).toFloat()
+                cornerRadius = dp(15).toFloat()
                 setStroke(
-                    dp(1),
+                    dp(2),
                     Color.rgb(185, 155, 105)
                 )
             }
+
+            elevation = dp(2).toFloat()
+        }
+    }
+
+    private fun fallbackPanel(): Drawable {
+
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                parchmentColor,
+                parchmentDark
+            )
+        ).apply {
+            cornerRadius = dp(18).toFloat()
+            setStroke(dp(3), goldColor)
         }
     }
 
@@ -779,14 +901,14 @@ class MainActivity : ComponentActivity() {
         text: String,
         size: Float,
         color: Int,
-        style: Int = Typeface.NORMAL
+        font: Typeface = bodyFont
     ): TextView {
 
         return TextView(this).apply {
             this.text = text
             textSize = size
             setTextColor(color)
-            typeface = Typeface.create(bodyFont, style)
+            typeface = font
         }
     }
 
@@ -821,7 +943,7 @@ class MainActivity : ComponentActivity() {
             ).apply {
                 setMargins(
                     dp(5),
-                    dp(12),
+                    dp(13),
                     dp(5),
                     dp(17)
                 )
@@ -854,6 +976,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dp(value: Int): Int {
+
         return (
             value * resources.displayMetrics.density
         ).toInt()
@@ -861,7 +984,6 @@ class MainActivity : ComponentActivity() {
 
     // --------------------------------------------------
     // MIDI CONVERSION
-    // Runs in a background thread.
     // --------------------------------------------------
 
     private fun convertMidi() {
@@ -901,8 +1023,7 @@ class MainActivity : ComponentActivity() {
                     )
 
                 runOnUiThread {
-                    statusText.text =
-                        "Reading MIDI tracks..."
+                    statusText.text = "Reading MIDI tracks..."
                 }
 
                 val parsedMidi = MidiReader.read(midiBytes)
@@ -955,7 +1076,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // MSM SAVING
+    // SAVE MSM
     // --------------------------------------------------
 
     private fun saveConvertedFile(uri: Uri) {
