@@ -1,4 +1,4 @@
-package com.dragosdomini.midi2msm
+package com.dragosdomini.msmtools
 
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
