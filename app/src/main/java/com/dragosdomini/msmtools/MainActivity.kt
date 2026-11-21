@@ -242,11 +242,11 @@ class MainActivity : ComponentActivity() {
 
         root.addView(
             makeText(
-                "MIDI TO MONSTER COMPOSER",
-                13f,
-                goldColor,
-                Typeface.BOLD
-            ).apply {
+    "MIDI TO MONSTER COMPOSER",
+    13f,
+    goldColor,
+    Typeface.create(bodyFont, Typeface.BOLD)
+).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(6), 0, dp(22))
             },
