@@ -68,3 +68,69 @@ Linux/macOS:
 
 ```bash
 ./gradlew :app:assembleDebug
+````
+
+Windows:
+
+```bat
+gradlew.bat :app:assembleDebug
+```
+
+The generated APK can be found at:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Project Structure
+
+```text
+app/
+└── src/
+    └── main/
+        ├── java/
+        │   └── com/
+        │       └── dragosdomini/
+        │           └── msmtools/
+        │               ├── MainActivity.kt
+        │               ├── MidiReader.kt
+        │               └── MsmConverter.kt
+        └── assets/
+            ├── mdata.json
+            ├── images/
+            └── fonts/
+```
+
+### Main Components
+
+| File            | Description                                                             |
+| --------------- | ----------------------------------------------------------------------- |
+| MainActivity.kt | Android interface, MIDI selection, conversion controls and file export. |
+| MidiReader.kt   | MIDI parsing, note extraction and instrument separation.                |
+| MsmConverter.kt | Monster assignment, note conversion and MSM generation.                 |
+| mdata.json      | Monster information and MIDI instrument mappings.                       |
+
+### Credits
+
+This project builds upon the original Python MIDI-to-MSM project:
+
+Original Project: [msmctools](https://github.com/ar0x65FF/msmctools?utm_source=chatgpt.com)
+
+Original Author: [ar0x65FF](https://github.com/ar0x65FF?utm_source=chatgpt.com)
+
+Credit is retained for the original project's conversion research, MIDI-to-MSM format work, note mapping and song structure.
+
+The Android application, Kotlin implementation, Android interface and integration are maintained in this repository.
+
+Please consult the original repository's license for applicable licensing terms.
+
+### Disclaimer
+
+My Singing Monsters and My Singing Monsters Composer are properties of Big Blue Bubble or their respective owners/publishers.
+
+This is an independent community project and is not affiliated with or endorsed by Big Blue Bubble or the game's owners/publishers.
+
+Always back up your compositions before importing converted files.
+
+I do not hold any liability if any of the above mentioned game companies/persons decides to press charges against me or any asset or code used in the making of this tool.
+That liability would go to the original maker of the python code used in this repository, as this is powered mainly on that.
