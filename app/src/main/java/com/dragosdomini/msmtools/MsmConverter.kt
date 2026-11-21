@@ -62,8 +62,7 @@ object MsmConverter {
             throw IOException("Invalid minimum note setting.")
         }
 
-        val division = midi.ticksPerBeat / minimumNote
-
+        val division = midi.ticksPerBeat / (minimumNote / 4)
         if (division <= 0) {
             throw IOException("MIDI timing division is too small.")
         }
