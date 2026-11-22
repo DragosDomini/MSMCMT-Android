@@ -54,13 +54,18 @@ object MidiReader {
     )
 
     private data class ChannelState(
-        var program: Int = 0,
+        // -1 means no Program Change event has been received.
+        var program: Int = -1,
+
         var bankMsb: Int = 0,
         var bankLsb: Int = 0,
+
         var volume: Float = 1f,
+
         var posX: Int? = null,
         var posY: Int? = null,
         var flip: Int? = null,
+
         var muted: Int = 0
     ) {
         val bank: Int
@@ -110,7 +115,8 @@ object MidiReader {
 
         val headerLength = input.readInt()
 
-        if (headerLength < 6 ||
+        if (
+            headerLength < 6 ||
             headerLength > input.available() + 6
         ) {
             throw IOException("Invalid MIDI header.")
@@ -170,7 +176,8 @@ object MidiReader {
 
             val chunkLength = input.readInt()
 
-            if (chunkLength < 0 ||
+            if (
+                chunkLength < 0 ||
                 chunkLength > input.available()
             ) {
                 throw IOException(
@@ -179,11 +186,8 @@ object MidiReader {
             }
 
             val trackBytes = ByteArray(chunkLength)
-            input.readFully(trackBytes)
 
-            // Read metadata from EVERY track.
-            // Some MIDI files place tempo and time signature
-            // information in a separate conductor track.
+            input.readFully(trackBytes)
 
             val trackEvents = readEvents(trackBytes)
 
@@ -197,20 +201,20 @@ object MidiReader {
                 trackIndex
             )
 
-            if (trackIndex == 0 &&
+            if (
+                trackIndex == 0 &&
                 result.name.isNotBlank()
             ) {
                 fallbackSongName = result.name
             }
 
-            // Keep every playable part.
             parsedTracks.addAll(result.parts)
         }
 
         if (parsedTracks.isEmpty()) {
             throw IOException(
                 "No playable MIDI notes were found. " +
-                "Check that the MIDI file contains note events."
+                    "Check that the MIDI file contains note events."
             )
         }
 
@@ -237,7 +241,8 @@ object MidiReader {
 
         for (event in events) {
 
-            if (event.status != 0xFF ||
+            if (
+                event.status != 0xFF ||
                 event.data.isEmpty()
             ) {
                 continue
@@ -245,7 +250,6 @@ object MidiReader {
 
             when (event.data[0].toInt() and 0xFF) {
 
-                // Song or track name
                 0x03, 0x02 -> {
 
                     val name = String(
@@ -256,14 +260,14 @@ object MidiReader {
                         Charsets.UTF_8
                     ).trim()
 
-                    if (name.isNotBlank() &&
+                    if (
+                        name.isNotBlank() &&
                         metadata.songName.isBlank()
                     ) {
                         metadata.songName = name
                     }
                 }
 
-                // Tempo
                 0x51 -> {
 
                     if (event.data.size >= 4) {
@@ -283,7 +287,6 @@ object MidiReader {
                     }
                 }
 
-                // Time signature
                 0x58 -> {
 
                     if (event.data.size >= 3) {
@@ -301,12 +304,10 @@ object MidiReader {
                                 0
                             }
 
-                        // The Composer supports denominators
-                        // of 2, 4 and 8.
-                        if (numerator in 1..12 &&
+                        if (
+                            numerator in 1..12 &&
                             denominator in listOf(2, 4, 8)
                         ) {
-
                             metadata.numerator = numerator
                             metadata.denominator = denominator
                         }
@@ -329,14 +330,8 @@ object MidiReader {
 
         val channels = mutableMapOf<Int, ChannelState>()
 
-        // Each channel and instrument combination
-        // receives its own independent part.
-
         val parts =
             linkedMapOf<InstrumentKey, PartBuilder>()
-
-        // Keep overlapping notes separate.
-        // Each open note remembers its original instrument.
 
         val openNotes =
             mutableMapOf<Pair<Int, Int>, ArrayDeque<OpenNote>>()
@@ -349,7 +344,8 @@ object MidiReader {
 
             if (event.status == 0xFF) {
 
-                if (event.data.isNotEmpty() &&
+                if (
+                    event.data.isNotEmpty() &&
                     (event.data[0].toInt() and 0xFF) == 0x03
                 ) {
 
@@ -378,9 +374,7 @@ object MidiReader {
 
             when (command) {
 
-                // --------------------------------------
                 // NOTE ON
-                // --------------------------------------
 
                 0x90 -> {
 
@@ -439,9 +433,7 @@ object MidiReader {
                     }
                 }
 
-                // --------------------------------------
                 // NOTE OFF
-                // --------------------------------------
 
                 0x80 -> {
 
@@ -460,9 +452,7 @@ object MidiReader {
                     }
                 }
 
-                // --------------------------------------
                 // CONTROL CHANGE
-                // --------------------------------------
 
                 0xB0 -> {
 
@@ -476,32 +466,25 @@ object MidiReader {
 
                     when (controller) {
 
-                        // Bank Select MSB
                         0 -> state.bankMsb = value
 
-                        // Bank Select LSB
                         32 -> state.bankLsb = value
 
-                        // Channel volume
                         7 -> state.volume = value / 127f
 
-                        // Custom MSM positioning
                         102 -> state.posX = value
+
                         103 -> state.posY = value
 
-                        // Flip
                         104 -> state.flip =
                             if (value == 0) 0 else 1
 
-                        // Mute
                         105 -> state.muted =
                             if (value == 0) 0 else 1
                     }
                 }
 
-                // --------------------------------------
                 // PROGRAM CHANGE
-                // --------------------------------------
 
                 0xC0 -> {
 
@@ -515,9 +498,7 @@ object MidiReader {
             }
         }
 
-        // ----------------------------------------------
         // CLOSE UNFINISHED NOTES
-        // ----------------------------------------------
 
         for ((noteKey, starts) in openNotes) {
 
@@ -551,9 +532,7 @@ object MidiReader {
             }
         }
 
-        // ----------------------------------------------
         // BUILD OUTPUT PARTS
-        // ----------------------------------------------
 
         val outputParts = mutableListOf<MidiTrackData>()
 
@@ -562,9 +541,11 @@ object MidiReader {
             if (part.notes.isEmpty()) continue
 
             val channelName =
-                if (parts.count {
-                    it.key.channel == key.channel
-                } > 1 || channels.size > 1) {
+                if (
+                    parts.count {
+                        it.key.channel == key.channel
+                    } > 1 || channels.size > 1
+                ) {
 
                     "Channel ${key.channel + 1}"
 
@@ -632,9 +613,6 @@ object MidiReader {
         val starts = openNotes[noteKey] ?: return
 
         if (starts.isEmpty()) return
-
-        // FIFO pairing supports overlapping notes
-        // with the same pitch on the same channel.
 
         val open = starts.removeFirst()
 
@@ -802,7 +780,11 @@ object MidiReader {
         )
 
         return names.getOrElse(program) {
-            "Program $program"
+            if (program == -1) {
+                "Instrument not specified"
+            } else {
+                "Program $program"
+            }
         }
     }
 
@@ -861,9 +843,7 @@ object MidiReader {
                 firstData = null
             }
 
-            // ------------------------------------------
             // META EVENTS
-            // ------------------------------------------
 
             if (status == 0xFF) {
 
@@ -886,6 +866,7 @@ object MidiReader {
                 }
 
                 val data = ByteArray(length.toInt())
+
                 input.readFully(data)
 
                 events.add(
@@ -901,9 +882,7 @@ object MidiReader {
                 continue
             }
 
-            // ------------------------------------------
             // SYSEX EVENTS
-            // ------------------------------------------
 
             if (status == 0xF0 || status == 0xF7) {
 
@@ -931,9 +910,7 @@ object MidiReader {
                 )
             }
 
-            // ------------------------------------------
             // CHANNEL EVENTS
-            // ------------------------------------------
 
             runningStatus = status
 
