@@ -31,27 +31,46 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.app.AlertDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
 
+    // --------------------------------------------------
+    // FILE STATE
+    // --------------------------------------------------
+
     private var selectedMidi: Uri? = null
     private var selectedName: String? = null
     private var convertedMsm: ByteArray? = null
 
+    private var isConverting = false
+
+    // --------------------------------------------------
+    // UI REFERENCES
+    // --------------------------------------------------
+
     private lateinit var statusText: TextView
     private lateinit var selectedFileText: TextView
     private lateinit var convertButton: Button
+
     private lateinit var loadingContainer: FrameLayout
     private lateinit var loadingFill: ImageView
-    private lateinit var loadingBackground: ImageView
 
     private var loadingAnimator: ValueAnimator? = null
 
+    // --------------------------------------------------
+    // FONTS
+    // --------------------------------------------------
+
     private var bodyFont = Typeface.DEFAULT
     private var headingFont = Typeface.DEFAULT_BOLD
+
+    // --------------------------------------------------
+    // NOTE SETTINGS
+    // --------------------------------------------------
 
     private val noteOptions = listOf(
         "1/8" to 8,
@@ -60,10 +79,14 @@ class MainActivity : ComponentActivity() {
     )
 
     private var selectedDivision = 8
+
     private val noteChips = mutableListOf<TextView>()
+
     private var chipsEnabled = true
 
+    // --------------------------------------------------
     // ASSETS
+    // --------------------------------------------------
 
     private var backgroundBitmap: Bitmap? = null
     private var buttonBaseBitmap: Bitmap? = null
@@ -71,7 +94,9 @@ class MainActivity : ComponentActivity() {
     private var loadingBitmap: Bitmap? = null
     private var loadingBackgroundBitmap: Bitmap? = null
 
+    // --------------------------------------------------
     // COLORS
+    // --------------------------------------------------
 
     private val purpleDark = Color.rgb(29, 19, 39)
     private val purplePanel = Color.rgb(48, 34, 61)
@@ -140,11 +165,12 @@ class MainActivity : ComponentActivity() {
 
         savedInstanceState?.let {
 
-            selectedMidi = it.getString("midi_uri")?.let {
-                Uri.parse(it)
+            selectedMidi = it.getString("midi_uri")?.let { value ->
+                Uri.parse(value)
             }
 
             selectedName = it.getString("midi_name")
+
             selectedDivision = it.getInt("division", 8)
 
             if (selectedDivision !in noteOptions.map { it.second }) {
@@ -165,11 +191,23 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+
         super.onSaveInstanceState(outState)
 
-        outState.putString("midi_uri", selectedMidi?.toString())
-        outState.putString("midi_name", selectedName)
-        outState.putInt("division", selectedDivision)
+        outState.putString(
+            "midi_uri",
+            selectedMidi?.toString()
+        )
+
+        outState.putString(
+            "midi_name",
+            selectedName
+        )
+
+        outState.putInt(
+            "division",
+            selectedDivision
+        )
     }
 
     // --------------------------------------------------
@@ -179,11 +217,14 @@ class MainActivity : ComponentActivity() {
     private fun loadFonts() {
 
         bodyFont = try {
+
             Typeface.createFromAsset(
                 assets,
                 "fonts/Fredoka-VariableFont_wdth,wght.ttf"
             )
+
         } catch (_: Exception) {
+
             Typeface.create(
                 "sans-serif-rounded",
                 Typeface.NORMAL
@@ -203,12 +244,16 @@ class MainActivity : ComponentActivity() {
     private fun loadAssets() {
 
         backgroundBitmap = loadImage("images/background.jpg")
+
         buttonBaseBitmap = loadImage("images/button_base.png")
+
         panelBitmap = loadImage("images/panel.png")
+
         loadingBitmap = loadImage("images/loadbar.png")
+
         loadingBackgroundBitmap = loadImage("images/loadbar_bg.png")
 
-        // Rotate panel artwork into portrait orientation.
+        // Rotate the panel into portrait orientation.
 
         panelBitmap = panelBitmap?.let { bitmap ->
 
@@ -229,11 +274,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadImage(path: String): Bitmap? {
+
         return try {
+
             assets.open(path).use {
                 BitmapFactory.decodeStream(it)
             }
+
         } catch (_: Exception) {
+
             null
         }
     }
@@ -269,7 +318,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // FULL SCREEN BACKGROUND
+    // BACKGROUND DRAWABLE
     // --------------------------------------------------
 
     private inner class BackgroundDrawable(
@@ -333,20 +382,24 @@ class MainActivity : ComponentActivity() {
     private fun buildInterface() {
 
         val container = FrameLayout(this).apply {
+
             background = backgroundBitmap?.let {
                 BackgroundDrawable(it)
             } ?: ColorDrawable(purpleDark)
         }
 
         val scrollView = ScrollView(this).apply {
+
             isFillViewport = true
             clipToPadding = false
+
             setBackgroundColor(Color.TRANSPARENT)
         }
 
         val root = LinearLayout(this).apply {
 
             orientation = LinearLayout.VERTICAL
+
             gravity = Gravity.CENTER_HORIZONTAL
 
             setPadding(
@@ -385,6 +438,7 @@ class MainActivity : ComponentActivity() {
         val header = LinearLayout(this).apply {
 
             orientation = LinearLayout.VERTICAL
+
             gravity = Gravity.CENTER
 
             setPadding(
@@ -422,7 +476,9 @@ class MainActivity : ComponentActivity() {
                 gold,
                 bodyFont
             ).apply {
+
                 gravity = Gravity.CENTER
+
                 setPadding(0, dp(5), 0, 0)
             },
             matchWidth()
@@ -471,7 +527,9 @@ class MainActivity : ComponentActivity() {
                 cream,
                 headingFont
             ).apply {
+
                 gravity = Gravity.CENTER
+
                 setShadowLayer(3f, 0f, 2f, Color.BLACK)
             },
             matchWidth()
@@ -483,7 +541,10 @@ class MainActivity : ComponentActivity() {
 
         val fileCard = makeSection()
 
-        addSectionTitle(fileCard, "1. CHOOSE YOUR SONG")
+        addSectionTitle(
+            fileCard,
+            "1. CHOOSE YOUR SONG"
+        )
 
         fileCard.addView(
             makeText(
@@ -491,6 +552,7 @@ class MainActivity : ComponentActivity() {
                 13f,
                 creamMuted
             ).apply {
+
                 setPadding(0, dp(7), 0, dp(13))
             },
             matchWidth()
@@ -518,6 +580,7 @@ class MainActivity : ComponentActivity() {
         ).apply {
 
             gravity = Gravity.CENTER
+
             background = insetBackground()
 
             setPadding(
@@ -543,7 +606,10 @@ class MainActivity : ComponentActivity() {
 
         val settingsCard = makeSection()
 
-        addSectionTitle(settingsCard, "2. NOTE SETTINGS")
+        addSectionTitle(
+            settingsCard,
+            "2. NOTE SETTINGS"
+        )
 
         settingsCard.addView(
             makeText(
@@ -551,6 +617,7 @@ class MainActivity : ComponentActivity() {
                 13f,
                 creamMuted
             ).apply {
+
                 setPadding(0, dp(7), 0, dp(13))
             },
             matchWidth()
@@ -584,7 +651,10 @@ class MainActivity : ComponentActivity() {
 
         val loadingCard = makeSection()
 
-        addSectionTitle(loadingCard, "CONVERSION PROGRESS")
+        addSectionTitle(
+            loadingCard,
+            "CONVERSION PROGRESS"
+        )
 
         loadingCard.addView(
             makeText(
@@ -592,7 +662,9 @@ class MainActivity : ComponentActivity() {
                 12f,
                 creamMuted
             ).apply {
+
                 gravity = Gravity.CENTER
+
                 setPadding(0, dp(8), 0, dp(13))
             },
             matchWidth()
@@ -609,12 +681,15 @@ class MainActivity : ComponentActivity() {
             loadingReference != null &&
             loadingReference.width > 0
         ) {
+
             (
                 loadingWidth.toFloat() *
                     loadingReference.height /
                     loadingReference.width
             ).toInt().coerceAtLeast(dp(12))
+
         } else {
+
             dp(24)
         }
 
@@ -622,7 +697,7 @@ class MainActivity : ComponentActivity() {
             visibility = View.GONE
         }
 
-        loadingBackground = ImageView(this).apply {
+        val loadingBackground = ImageView(this).apply {
 
             scaleType = ImageView.ScaleType.FIT_CENTER
 
@@ -652,6 +727,7 @@ class MainActivity : ComponentActivity() {
                 )
 
                 drawable.level = 0
+
                 setImageDrawable(drawable)
             }
         }
@@ -677,7 +753,10 @@ class MainActivity : ComponentActivity() {
 
         val statusCard = makeSection()
 
-        addSectionTitle(statusCard, "WORKSHOP STATUS")
+        addSectionTitle(
+            statusCard,
+            "WORKSHOP STATUS"
+        )
 
         statusText = makeText(
             if (selectedMidi != null) {
@@ -690,6 +769,7 @@ class MainActivity : ComponentActivity() {
         ).apply {
 
             gravity = Gravity.CENTER
+
             background = insetBackground()
 
             setPadding(
@@ -717,6 +797,7 @@ class MainActivity : ComponentActivity() {
             ).apply {
 
                 gravity = Gravity.CENTER
+
                 setPadding(0, dp(20), 0, 0)
 
                 setShadowLayer(
@@ -740,6 +821,7 @@ class MainActivity : ComponentActivity() {
         parent: LinearLayout,
         title: String
     ) {
+
         parent.addView(
             makeText(
                 title,
@@ -773,6 +855,7 @@ class MainActivity : ComponentActivity() {
             ).apply {
 
                 cornerRadius = dp(12).toFloat()
+
                 setStroke(dp(1), bronze)
             }
 
@@ -785,7 +868,9 @@ class MainActivity : ComponentActivity() {
         return GradientDrawable().apply {
 
             setColor(Color.rgb(65, 47, 77))
+
             cornerRadius = dp(8).toFloat()
+
             setStroke(dp(1), bronze)
         }
     }
@@ -810,7 +895,13 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(2)
             ).apply {
-                setMargins(dp(8), dp(13), dp(8), dp(17))
+
+                setMargins(
+                    dp(8),
+                    dp(13),
+                    dp(8),
+                    dp(17)
+                )
             }
         )
     }
@@ -841,7 +932,9 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener {
 
                     if (chipsEnabled) {
+
                         selectedDivision = option.second
+
                         refreshChips()
                     }
                 }
@@ -881,10 +974,15 @@ class MainActivity : ComponentActivity() {
                 cornerRadius = dp(9).toFloat()
 
                 if (selected) {
+
                     setColor(purpleLight)
+
                     setStroke(dp(2), gold)
+
                 } else {
+
                     setColor(purpleDark)
+
                     setStroke(dp(1), bronzeDark)
                 }
             }
@@ -945,6 +1043,7 @@ class MainActivity : ComponentActivity() {
             )
 
             for (row in 0..2) {
+
                 for (column in 0..2) {
 
                     val source = Rect(
@@ -995,6 +1094,7 @@ class MainActivity : ComponentActivity() {
         ).apply {
 
             cornerRadius = dp(18).toFloat()
+
             setStroke(dp(3), bronze)
         }
     }
@@ -1011,12 +1111,15 @@ class MainActivity : ComponentActivity() {
         return Button(this).apply {
 
             this.text = text
+
             textSize = 16f
+
             typeface = headingFont
 
             setTextColor(cream)
 
             isAllCaps = false
+
             backgroundTintList = null
 
             background = buttonBaseBitmap?.let { bitmap ->
@@ -1044,6 +1147,7 @@ class MainActivity : ComponentActivity() {
                 when (event.actionMasked) {
 
                     MotionEvent.ACTION_DOWN -> {
+
                         view.animate()
                             .scaleX(0.97f)
                             .scaleY(0.97f)
@@ -1053,6 +1157,7 @@ class MainActivity : ComponentActivity() {
 
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> {
+
                         view.animate()
                             .scaleX(1f)
                             .scaleY(1f)
@@ -1078,6 +1183,7 @@ class MainActivity : ComponentActivity() {
         ).apply {
 
             cornerRadius = dp(12).toFloat()
+
             setStroke(dp(2), bronze)
         }
     }
@@ -1104,10 +1210,13 @@ class MainActivity : ComponentActivity() {
         ).apply {
 
             duration = 900L
+
             repeatCount = ValueAnimator.INFINITE
+
             repeatMode = ValueAnimator.REVERSE
 
             addUpdateListener {
+
                 drawable.level = it.animatedValue as Int
             }
 
@@ -1118,6 +1227,7 @@ class MainActivity : ComponentActivity() {
     private fun stopLoadingAnimation() {
 
         loadingAnimator?.cancel()
+
         loadingAnimator = null
 
         (loadingFill.drawable as? ClipDrawable)?.level = 10000
@@ -1126,6 +1236,7 @@ class MainActivity : ComponentActivity() {
     private fun hideLoadingAnimation() {
 
         loadingAnimator?.cancel()
+
         loadingAnimator = null
 
         loadingContainer.visibility = View.GONE
@@ -1147,9 +1258,13 @@ class MainActivity : ComponentActivity() {
         return TextView(this).apply {
 
             this.text = text
+
             textSize = size
+
             setTextColor(color)
+
             typeface = font
+
             includeFontPadding = true
         }
     }
@@ -1179,11 +1294,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
+
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
     }
 
     // --------------------------------------------------
-    // STATUS
+    // STATUS AND BUSY STATE
     // --------------------------------------------------
 
     private fun setStatus(
@@ -1200,16 +1318,21 @@ class MainActivity : ComponentActivity() {
 
     private fun setBusy(busy: Boolean) {
 
+        isConverting = busy
+
         convertButton.isEnabled = !busy
+
         convertButton.alpha = if (busy) 0.6f else 1f
 
         chipsEnabled = !busy
+
         refreshChips()
     }
 
     private fun ui(block: () -> Unit) {
 
         runOnUiThread {
+
             if (!isFinishing && !isDestroyed) {
                 block()
             }
@@ -1217,20 +1340,29 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // MIDI READING AND MONSTER SELECTION
+    // MIDI READING
     // --------------------------------------------------
 
     private fun convertMidi() {
 
+        if (isConverting) return
+
         val midiUri = selectedMidi
 
         if (midiUri == null) {
-            setStatus("Please select a MIDI file first.", true)
+
+            setStatus(
+                "Please select a MIDI file first.",
+                true
+            )
+
             return
         }
 
         setBusy(true)
+
         setStatus("Reading your song...")
+
         startLoadingAnimation()
 
         val noteDivision = selectedDivision
@@ -1239,12 +1371,14 @@ class MainActivity : ComponentActivity() {
 
             try {
 
-                // Read the selected MIDI file.
+                // Read MIDI bytes.
 
                 val midiBytes = contentResolver
                     .openInputStream(midiUri)
                     ?.use { it.readBytes() }
-                    ?: throw IOException("Could not open MIDI file.")
+                    ?: throw IOException(
+                        "Could not open MIDI file."
+                    )
 
                 ui {
                     setStatus("Analyzing MIDI instruments...")
@@ -1255,17 +1389,29 @@ class MainActivity : ComponentActivity() {
                 val parsedMidi = MidiReader.read(midiBytes)
 
                 if (parsedMidi.tracks.isEmpty()) {
+
                     throw IOException(
                         "No playable instrument tracks were found."
                     )
                 }
 
-                // Stop the loading animation before showing
-                // the monster selection dialogs.
+                // Load monster database before opening selection.
+
+                val allMonsters = MonsterMapping.getAllMonsters(
+                    this@MainActivity
+                )
+
+                if (allMonsters.isEmpty()) {
+
+                    throw IOException(
+                        "The monster database is empty."
+                    )
+                }
 
                 ui {
 
                     hideLoadingAnimation()
+
                     setBusy(false)
 
                     setStatus(
@@ -1273,31 +1419,25 @@ class MainActivity : ComponentActivity() {
                             "Choose a monster for each part."
                     )
 
-                    // Show the actual MonsterMapping interface.
+                    // Start the sequential monster selector.
 
-                    MonsterMapping.selectMonsters(
-                        context = this@MainActivity,
-                        midi = parsedMidi
-                    ) { assignments ->
-
-                        // Continue once all monsters are assigned.
-
-                        startConversionWithAssignments(
-                            midi = parsedMidi,
-                            noteDivision = noteDivision,
-                            assignments = assignments
-                        )
-                    }
+                    showMonsterSelection(
+                        midi = parsedMidi,
+                        noteDivision = noteDivision,
+                        trackIndex = 0,
+                        assignments = mutableMapOf()
+                    )
                 }
 
             } catch (e: Exception) {
 
                 ui {
 
-                    convertedMsm = null
-
                     hideLoadingAnimation()
+
                     setBusy(false)
+
+                    convertedMsm = null
 
                     setStatus(
                         "MIDI reading failed:\n" +
@@ -1308,6 +1448,358 @@ class MainActivity : ComponentActivity() {
             }
 
         }.start()
+    }
+
+    // --------------------------------------------------
+    // MONSTER SELECTION INTERFACE
+    // --------------------------------------------------
+
+    private fun showMonsterSelection(
+        midi: ParsedMidi,
+        noteDivision: Int,
+        trackIndex: Int,
+        assignments: MutableMap<Int, Int>
+    ) {
+
+        if (isFinishing || isDestroyed) return
+
+        // All tracks have been assigned.
+
+        if (trackIndex >= midi.tracks.size) {
+
+            setStatus(
+                "All ${assignments.size} instrument parts have been assigned.\n" +
+                    "Building your composition..."
+            )
+
+            startConversionWithAssignments(
+                midi,
+                noteDivision,
+                assignments.toMap()
+            )
+
+            return
+        }
+
+        val track = midi.tracks[trackIndex]
+
+        try {
+
+            // Retrieve the entire monster database.
+
+            val allMonsters = MonsterMapping.getAllMonsters(this)
+
+            // Retrieve instrument-specific suggestions.
+
+            val suggestions = MonsterMapping.findMonsterSuggestions(
+                context = this,
+                program = track.program,
+                bank = track.bank
+            )
+
+            // Suggestions appear first.
+            // Every other monster remains available.
+
+            val orderedMonsters = (
+                suggestions +
+                    allMonsters.filterNot { candidate ->
+                        suggestions.any {
+                            it.id == candidate.id
+                        }
+                    }
+                ).distinctBy { it.id }
+
+            if (orderedMonsters.isEmpty()) {
+
+                throw IOException(
+                    "No monsters are available in the database."
+                )
+            }
+
+            val suggestedIds = suggestions.map { it.id }.toSet()
+
+            val labels = orderedMonsters.map { monster ->
+
+                val recommended =
+                    if (monster.id in suggestedIds) {
+                        "★ RECOMMENDED"
+                    } else {
+                        "MONSTER"
+                    }
+
+                "$recommended  ${monster.name}"
+            }.toTypedArray()
+
+            val recommendedMonster =
+                suggestions.firstOrNull()
+
+            val instrumentName = getInstrumentName(track.program)
+
+            val title =
+                "PART ${trackIndex + 1} OF ${midi.tracks.size}"
+
+            val description = buildString {
+
+                appendLine(track.name)
+
+                appendLine()
+
+                appendLine("Instrument: $instrumentName")
+
+                appendLine("MIDI Program: ${track.program}")
+
+                appendLine("MIDI Bank: ${track.bank}")
+
+                appendLine("Notes: ${track.notes.size}")
+
+                appendLine()
+
+                if (recommendedMonster != null) {
+
+                    append(
+                        "Suggested monster: ${recommendedMonster.name}"
+                    )
+
+                } else {
+
+                    append(
+                        "No exact instrument match found. " +
+                            "Choose a monster manually."
+                    )
+                }
+            }
+
+            val messageView = TextView(this).apply {
+
+                text = description
+
+                textSize = 15f
+
+                typeface = bodyFont
+
+                setTextColor(
+                    Color.rgb(69, 53, 39)
+                )
+
+                setPadding(
+                    dp(22),
+                    dp(12),
+                    dp(22),
+                    dp(12)
+                )
+            }
+
+            val dialog = AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(description)
+                .setItems(labels) { dialogInterface, which ->
+
+                    val selectedMonster = orderedMonsters[which]
+
+                    assignments[trackIndex] = selectedMonster.id
+
+                    setStatus(
+                        "Assigned ${selectedMonster.name} to " +
+                            "${track.name}.\n" +
+                            "Preparing the next instrument..."
+                    )
+
+                    dialogInterface.dismiss()
+
+                    // Move to the next instrument part.
+
+                    showMonsterSelection(
+                        midi = midi,
+                        noteDivision = noteDivision,
+                        trackIndex = trackIndex + 1,
+                        assignments = assignments
+                    )
+                }
+                .setNegativeButton("CANCEL") { dialogInterface, _ ->
+
+                    dialogInterface.dismiss()
+
+                    setStatus(
+                        "Monster selection cancelled. " +
+                            "Your MIDI file is still selected."
+                    )
+                }
+                .create()
+
+            dialog.setOnShowListener {
+
+                dialog.getButton(
+                    AlertDialog.BUTTON_NEGATIVE
+                )?.setTextColor(
+                    Color.rgb(140, 70, 50)
+                )
+
+                dialog.listView?.let { list ->
+
+                    list.setBackgroundColor(
+                        Color.rgb(250, 237, 207)
+                    )
+
+                    list.divider = GradientDrawable().apply {
+                        setColor(Color.rgb(210, 185, 140))
+                    }
+
+                    list.dividerHeight = dp(1)
+                }
+            }
+
+            dialog.show()
+
+        } catch (e: Exception) {
+
+            setStatus(
+                "Monster selection failed:\n" +
+                    (e.message ?: "Unknown error"),
+                true
+            )
+        }
+    }
+
+    // --------------------------------------------------
+    // GENERAL MIDI INSTRUMENT NAMES
+    // --------------------------------------------------
+
+    private fun getInstrumentName(program: Int): String {
+
+        val names = arrayOf(
+            "Acoustic Grand Piano",
+            "Bright Piano",
+            "Electric Grand Piano",
+            "Honky-tonk Piano",
+            "Electric Piano 1",
+            "Electric Piano 2",
+            "Harpsichord",
+            "Clavinet",
+            "Celesta",
+            "Glockenspiel",
+            "Music Box",
+            "Vibraphone",
+            "Marimba",
+            "Xylophone",
+            "Tubular Bells",
+            "Dulcimer",
+            "Drawbar Organ",
+            "Percussive Organ",
+            "Rock Organ",
+            "Church Organ",
+            "Reed Organ",
+            "Accordion",
+            "Harmonica",
+            "Tango Accordion",
+            "Acoustic Guitar Nylon",
+            "Acoustic Guitar Steel",
+            "Electric Guitar Jazz",
+            "Electric Guitar Clean",
+            "Electric Guitar Muted",
+            "Overdriven Guitar",
+            "Distortion Guitar",
+            "Guitar Harmonics",
+            "Acoustic Bass",
+            "Electric Bass Finger",
+            "Electric Bass Pick",
+            "Fretless Bass",
+            "Slap Bass 1",
+            "Slap Bass 2",
+            "Synth Bass 1",
+            "Synth Bass 2",
+            "Violin",
+            "Viola",
+            "Cello",
+            "Contrabass",
+            "Tremolo Strings",
+            "Pizzicato Strings",
+            "Orchestral Harp",
+            "Timpani",
+            "String Ensemble 1",
+            "String Ensemble 2",
+            "Synth Strings 1",
+            "Synth Strings 2",
+            "Choir Aahs",
+            "Voice Oohs",
+            "Synth Voice",
+            "Orchestra Hit",
+            "Trumpet",
+            "Trombone",
+            "Tuba",
+            "Muted Trumpet",
+            "French Horn",
+            "Brass Section",
+            "Synth Brass 1",
+            "Synth Brass 2",
+            "Soprano Sax",
+            "Alto Sax",
+            "Tenor Sax",
+            "Baritone Sax",
+            "Oboe",
+            "English Horn",
+            "Bassoon",
+            "Clarinet",
+            "Piccolo",
+            "Flute",
+            "Recorder",
+            "Pan Flute",
+            "Blown Bottle",
+            "Shakuhachi",
+            "Whistle",
+            "Ocarina",
+            "Lead 1 Square",
+            "Lead 2 Sawtooth",
+            "Lead 3 Calliope",
+            "Lead 4 Chiff",
+            "Lead 5 Charang",
+            "Lead 6 Voice",
+            "Lead 7 Fifths",
+            "Lead 8 Bass Lead",
+            "Pad 1 New Age",
+            "Pad 2 Warm",
+            "Pad 3 Polysynth",
+            "Pad 4 Choir",
+            "Pad 5 Bowed",
+            "Pad 6 Metallic",
+            "Pad 7 Halo",
+            "Pad 8 Sweep",
+            "FX 1 Rain",
+            "FX 2 Soundtrack",
+            "FX 3 Crystal",
+            "FX 4 Atmosphere",
+            "FX 5 Brightness",
+            "FX 6 Goblins",
+            "FX 7 Echoes",
+            "FX 8 Sci-fi",
+            "Sitar",
+            "Banjo",
+            "Shamisen",
+            "Koto",
+            "Kalimba",
+            "Bag Pipe",
+            "Fiddle",
+            "Shanai",
+            "Tinkle Bell",
+            "Agogo",
+            "Steel Drums",
+            "Woodblock",
+            "Taiko Drum",
+            "Melodic Tom",
+            "Synth Drum",
+            "Reverse Cymbal",
+            "Guitar Fret Noise",
+            "Breath Noise",
+            "Seashore",
+            "Bird Tweet",
+            "Telephone Ring",
+            "Helicopter",
+            "Applause",
+            "Gunshot"
+        )
+
+        return names.getOrElse(program) {
+            "Unknown Instrument ($program)"
+        }
     }
 
     // --------------------------------------------------
@@ -1328,8 +1820,12 @@ class MainActivity : ComponentActivity() {
                 true
             )
 
+            setBusy(false)
+
             return
         }
+
+        if (isConverting) return
 
         setBusy(true)
 
@@ -1341,8 +1837,7 @@ class MainActivity : ComponentActivity() {
 
             try {
 
-                // Pass the user's selected monster IDs into
-                // the existing MsmConverter.
+                // Convert MIDI using the manually selected monsters.
 
                 val msmBytes = MsmConverter.convert(
                     context = this@MainActivity,
@@ -1350,6 +1845,13 @@ class MainActivity : ComponentActivity() {
                     minimumNote = noteDivision,
                     monsterAssignments = assignments
                 )
+
+                if (msmBytes.isEmpty()) {
+
+                    throw IOException(
+                        "The converter returned an empty MSM file."
+                    )
+                }
 
                 ui {
 
@@ -1420,11 +1922,16 @@ class MainActivity : ComponentActivity() {
             contentResolver.openOutputStream(uri)?.use {
 
                 it.write(data)
+
                 it.flush()
 
-            } ?: throw IOException("Could not create output file.")
+            } ?: throw IOException(
+                "Could not create output file."
+            )
 
-            setStatus("Your MSM song was saved successfully!")
+            setStatus(
+                "Your MSM song was saved successfully!"
+            )
 
         } catch (e: Exception) {
 
@@ -1442,6 +1949,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
 
         loadingAnimator?.cancel()
+
         loadingAnimator = null
 
         super.onDestroy()
