@@ -1,297 +1,264 @@
 
 package com.dragosdomini.msmtools
 
-import android.app.AlertDialog
 import android.content.Context
 import org.json.JSONObject
+import java.io.IOException
 
-data class MonsterOption(
-    val id: Int,
-    val name: String,
-    val posX: Int,
-    val posY: Int,
-    val flip: Int,
-    val program: Int,
-    val bank: Int
-)
-
-data class InstrumentMapping(
-    val trackIndex: Int,
-    val instrumentName: String,
-    val program: Int,
-    val bank: Int,
-    val suggestedMonster: MonsterOption?,
-    val availableMonsters: List<MonsterOption>
-)
-
+/**
+ * MonsterMapping
+ *
+ * Loads monster information from mdata.json and provides
+ * MIDI instrument-to-monster matching.
+ *
+ * Uses the existing MSMCMT-Android monster database.
+ */
 object MonsterMapping {
 
+    data class Monster(
+        val id: Int,
+        val name: String,
+        val posX: Int,
+        val posY: Int,
+        val flip: Int,
+        val midiProgram: Int,
+        val midiBank: Int
+    )
+
+    private var monsters: List<Monster> = emptyList()
+    private var loaded = false
+
     /**
-     * Loads all monsters from mdata.json.
+     * Load the existing monster database.
      */
-    fun load(context: Context): List<MonsterOption> {
+    @Synchronized
+    fun load(context: Context) {
 
-        val jsonText = context.assets.open("mdata.json")
-            .bufferedReader()
-            .use { it.readText() }
+        if (loaded) return
 
-        val json = JSONObject(jsonText)
-        val result = mutableListOf<MonsterOption>()
+        val jsonText = try {
+            context.assets.open("mdata.json")
+                .bufferedReader()
+                .use { it.readText() }
+        } catch (e: Exception) {
+            throw IOException(
+                "Could not load mdata.json: ${e.message}"
+            )
+        }
+
+        val json = try {
+            JSONObject(jsonText)
+        } catch (e: Exception) {
+            throw IOException(
+                "Monster database contains invalid JSON."
+            )
+        }
+
+        val loadedMonsters = mutableListOf<Monster>()
 
         val keys = json.keys()
 
         while (keys.hasNext()) {
 
-            val key = keys.next()
-            val entry = json.getJSONObject(key)
+            val idString = keys.next()
 
-            result.add(
-                MonsterOption(
-                    id = key.toInt(),
-                    name = entry.getString("name"),
-                    posX = entry.getInt("pos_x"),
-                    posY = entry.getInt("pos_y"),
-                    flip = entry.getInt("flip"),
-                    program = entry.getInt("midi_program"),
-                    bank = entry.getInt("midi_bank_select_msb")
+            val entry = json.optJSONObject(idString)
+                ?: continue
+
+            val id = idString.toIntOrNull()
+                ?: continue
+
+            val name = entry.optString("name", "")
+            if (name.isBlank()) continue
+
+            loadedMonsters.add(
+                Monster(
+                    id = id,
+                    name = name,
+                    posX = entry.optInt("pos_x", 0),
+                    posY = entry.optInt("pos_y", 0),
+                    flip = entry.optInt("flip", 0),
+                    midiProgram = entry.optInt(
+                        "midi_program",
+                        -1
+                    ),
+                    midiBank = entry.optInt(
+                        "midi_bank_select_msb",
+                        0
+                    )
                 )
             )
         }
 
-        return result.sortedBy { it.name.lowercase() }
-    }
-
-    /**
-     * Finds monsters matching a MIDI instrument.
-     */
-    fun findExactMatches(
-        program: Int,
-        bank: Int,
-        monsters: List<MonsterOption>
-    ): List<MonsterOption> {
-
-        return monsters.filter {
-            it.program == program &&
-            it.bank == bank
+        if (loadedMonsters.isEmpty()) {
+            throw IOException(
+                "Monster database contains no valid monsters."
+            )
         }
+
+        monsters = loadedMonsters.sortedBy { it.id }
+        loaded = true
     }
 
     /**
-     * Finds monsters with a matching instrument program,
-     * even if the bank differs.
+     * Return all available monsters.
      */
-    fun findProgramMatches(
-        program: Int,
-        monsters: List<MonsterOption>
-    ): List<MonsterOption> {
-
-        return monsters.filter {
-            it.program == program
-        }
+    fun getAllMonsters(context: Context): List<Monster> {
+        load(context)
+        return monsters.toList()
     }
 
     /**
-     * Provides an automatic suggestion.
+     * Find a monster using an exact MIDI program and bank.
      *
-     * Exact program and bank matches take priority.
-     * Program-only matches are used next.
+     * Bank matching is attempted first because different
+     * monsters can share the same MIDI program.
      */
-    fun suggest(
+    fun findMonster(
+        context: Context,
         program: Int,
-        bank: Int,
-        monsters: List<MonsterOption>
-    ): MonsterOption? {
+        bank: Int
+    ): Monster? {
 
-        val exact = findExactMatches(
-            program,
-            bank,
-            monsters
-        )
+        load(context)
 
-        if (exact.isNotEmpty()) {
-            return exact.first()
+        if (program !in 0..127 || bank !in 0..127) {
+            return null
         }
 
-        val programMatches = findProgramMatches(
-            program,
-            monsters
-        )
-
-        if (programMatches.isNotEmpty()) {
-            return programMatches.first()
+        // First: exact program and bank.
+        val exactMatch = monsters.firstOrNull {
+            it.midiProgram == program &&
+            it.midiBank == bank
         }
 
-        // No exact mapping exists.
-        // Leave the choice to the user rather than
-        // silently assigning an unrelated monster.
+        if (exactMatch != null) {
+            return exactMatch
+        }
+
+        // Second: allow bank 0 as a fallback.
+        // This helps MIDI files that omit bank selection.
+        if (bank != 0) {
+
+            val defaultBankMatch = monsters.firstOrNull {
+                it.midiProgram == program &&
+                it.midiBank == 0
+            }
+
+            if (defaultBankMatch != null) {
+                return defaultBankMatch
+            }
+        }
 
         return null
     }
 
     /**
-     * Creates one mapping entry for every MIDI track.
+     * Find all monsters matching a MIDI instrument.
+     *
+     * Useful for the monster suggestion interface,
+     * where the user can choose between alternatives.
      */
-    fun createMappings(
+    fun findMonsterSuggestions(
         context: Context,
-        midi: ParsedMidi
-    ): List<InstrumentMapping> {
+        program: Int,
+        bank: Int
+    ): List<Monster> {
 
-        val monsters = load(context)
+        load(context)
 
-        return midi.tracks.mapIndexed { index, track ->
+        if (program !in 0..127 || bank !in 0..127) {
+            return emptyList()
+        }
 
-            InstrumentMapping(
-                trackIndex = index,
-                instrumentName = track.name,
-                program = track.program,
-                bank = track.bank,
+        val exactMatches = monsters.filter {
+            it.midiProgram == program &&
+            it.midiBank == bank
+        }
 
-                suggestedMonster = suggest(
-                    track.program,
-                    track.bank,
-                    monsters
-                ),
+        if (exactMatches.isNotEmpty()) {
+            return exactMatches
+        }
 
-                availableMonsters = monsters
+        return monsters.filter {
+            it.midiProgram == program &&
+            it.midiBank == 0
+        }
+    }
+
+    /**
+     * Find a monster by its internal MSM ID.
+     */
+    fun findMonsterById(
+        context: Context,
+        monsterId: Int
+    ): Monster? {
+
+        load(context)
+
+        return monsters.firstOrNull {
+            it.id == monsterId
+        }
+    }
+
+    /**
+     * Search monsters by name.
+     */
+    fun searchMonsters(
+        context: Context,
+        query: String
+    ): List<Monster> {
+
+        load(context)
+
+        if (query.isBlank()) {
+            return emptyList()
+        }
+
+        return monsters.filter {
+            it.name.contains(
+                query.trim(),
+                ignoreCase = true
             )
         }
     }
 
     /**
-     * Displays a monster selection dialog for every
-     * MIDI instrument track.
-     *
-     * Returns:
-     * Map<MIDI track index, Monster ID>
+     * Resolve an instrument or return a useful error.
      */
-    fun selectMonsters(
+    @Throws(IOException::class)
+    fun requireMonster(
         context: Context,
-        midi: ParsedMidi,
-        onComplete: (Map<Int, Int>) -> Unit
-    ) {
+        program: Int,
+        bank: Int
+    ): Monster {
 
-        val mappings = try {
-            createMappings(context, midi)
-        } catch (e: Exception) {
+        return findMonster(
+            context,
+            program,
+            bank
+        ) ?: throw IOException(
+            "No monster mapping found for MIDI program " +
+            "$program, bank $bank. Check your instrument selection."
+        )
+    }
 
-            AlertDialog.Builder(context)
-                .setTitle("Monster Database Error")
-                .setMessage(
-                    e.message ?: "Could not load monster database."
-                )
-                .setPositiveButton("OK", null)
-                .show()
+    /**
+     * Get the number of available monster mappings.
+     */
+    fun getMonsterCount(context: Context): Int {
+        load(context)
+        return monsters.size
+    }
 
-            return
-        }
-
-        if (mappings.isEmpty()) {
-            AlertDialog.Builder(context)
-                .setTitle("No Instrument Tracks")
-                .setMessage("No MIDI instrument tracks were found.")
-                .setPositiveButton("OK", null)
-                .show()
-
-            return
-        }
-
-        val assignments = mutableMapOf<Int, Int>()
-
-        fun showTrackSelection(index: Int) {
-
-            if (index >= mappings.size) {
-
-                onComplete(assignments.toMap())
-                return
-            }
-
-            val mapping = mappings[index]
-
-            val monsters = mapping.availableMonsters
-
-            val suggested = mapping.suggestedMonster
-
-            val selectedIndex = monsters.indexOfFirst {
-                it.id == suggested?.id
-            }
-
-            val labels = monsters.map { monster ->
-
-                val exact = monster.program == mapping.program &&
-                    monster.bank == mapping.bank
-
-                val programMatch =
-                    monster.program == mapping.program
-
-                when {
-                    exact -> "${monster.name}  ★ Exact match"
-                    programMatch -> "${monster.name}  ★ Instrument match"
-                    else -> monster.name
-                }
-            }.toTypedArray()
-
-            val title =
-                "Track ${index + 1} of ${mappings.size}"
-
-            val description =
-                "${mapping.instrumentName}\n\n" +
-                "MIDI Program: ${mapping.program}\n" +
-                "MIDI Bank: ${mapping.bank}\n\n" +
-                "Choose the monster that should perform this part."
-
-            AlertDialog.Builder(context)
-                .setTitle(title)
-                .setMessage(description)
-                .setSingleChoiceItems(
-                    labels,
-                    selectedIndex
-                ) { dialog, which ->
-
-                    val chosen = monsters[which]
-
-                    assignments[mapping.trackIndex] = chosen.id
-
-                    dialog.dismiss()
-
-                    showTrackSelection(index + 1)
-                }
-                .setNeutralButton(
-                    "Use Suggested"
-                ) { dialog, _ ->
-
-                    if (suggested != null) {
-
-                        assignments[mapping.trackIndex] =
-                            suggested.id
-
-                        dialog.dismiss()
-
-                        showTrackSelection(index + 1)
-
-                    } else {
-
-                        dialog.dismiss()
-
-                        AlertDialog.Builder(context)
-                            .setTitle("No Automatic Match")
-                            .setMessage(
-                                "Please select a monster manually " +
-                                "for ${mapping.instrumentName}."
-                            )
-                            .setPositiveButton("Choose Monster") {
-                                _, _ ->
-                                showTrackSelection(index)
-                            }
-                            .show()
-                    }
-                }
-                .setNegativeButton("Cancel") { dialog, _ ->
-
-                    dialog.dismiss()
-                }
-                .show()
-        }
-
-        showTrackSelection(0)
+    /**
+     * Reset the database cache.
+     *
+     * Useful when testing updated mdata.json files.
+     */
+    @Synchronized
+    fun clearCache() {
+        monsters = emptyList()
+        loaded = false
     }
 }
