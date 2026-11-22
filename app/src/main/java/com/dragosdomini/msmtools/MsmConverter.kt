@@ -2,8 +2,8 @@
 package com.dragosdomini.msmtools
 
 import android.content.Context
-import org.json.JSONObject
 import net.jpountz.lz4.LZ4Factory
+import org.json.JSONObject
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 
@@ -39,7 +39,7 @@ object MsmConverter {
         84 to 85
     )
 
-    private data class Monster(
+    data class Monster(
         val id: Int,
         val name: String,
         val x: Int,
@@ -49,10 +49,20 @@ object MsmConverter {
         val bank: Int
     )
 
+    /**
+     * Converts MIDI data into an MSM file.
+     *
+     * monsterAssignments:
+     * Key   = MIDI track index (starting at 0)
+     * Value = Monster ID from mdata.json
+     *
+     * Manual assignments override automatic mappings.
+     */
     fun convert(
         context: Context,
         midi: ParsedMidi,
-        minimumNote: Int
+        minimumNote: Int,
+        monsterAssignments: Map<Int, Int> = emptyMap()
     ): ByteArray {
 
         if (minimumNote != 8 &&
@@ -62,23 +72,31 @@ object MsmConverter {
             throw IOException("Invalid minimum note setting.")
         }
 
+        if (midi.ticksPerBeat <= 0) {
+            throw IOException("Invalid MIDI timing division.")
+        }
+
         val division = midi.ticksPerBeat / (minimumNote / 4)
+
         if (division <= 0) {
             throw IOException("MIDI timing division is too small.")
         }
 
-        val monsterDatabase = loadMonsterDatabase(context)
+        val monsters = loadMonsterDatabase(context)
 
         val xml = buildXml(
             midi = midi,
-            monsters = monsterDatabase,
-            noteDivision = division
+            monsters = monsters,
+            noteDivision = division,
+            monsterAssignments = monsterAssignments
         )
 
         val xmlBytes = xml.toByteArray(StandardCharsets.UTF_8)
 
-        // The original Python converter compresses XML plus
-        // one terminating zero byte using a raw LZ4 block.
+        // Preserve the original Python converter's format:
+        // XML followed by a terminating zero byte,
+        // compressed as a raw LZ4 block.
+
         val input = xmlBytes + byteArrayOf(0)
 
         val compressor = LZ4Factory
@@ -100,11 +118,15 @@ object MsmConverter {
         return compressed.copyOf(compressedLength)
     }
 
-    private fun loadMonsterDatabase(
+    /**
+     * Loads every available monster from mdata.json.
+     */
+    fun loadMonsterDatabase(
         context: Context
     ): List<Monster> {
 
-        val jsonText = context.assets.open("mdata.json")
+        val jsonText = context.assets
+            .open("mdata.json")
             .bufferedReader()
             .use { it.readText() }
 
@@ -114,6 +136,7 @@ object MsmConverter {
         val keys = json.keys()
 
         while (keys.hasNext()) {
+
             val idString = keys.next()
             val entry = json.getJSONObject(idString)
 
@@ -133,10 +156,37 @@ object MsmConverter {
         return monsters
     }
 
+    /**
+     * Returns monsters matching a MIDI instrument exactly.
+     */
+    fun findExactMatches(
+        monsters: List<Monster>,
+        program: Int,
+        bank: Int
+    ): List<Monster> {
+
+        return monsters.filter {
+            it.program == program &&
+            it.bank == bank
+        }
+    }
+
+    /**
+     * Returns monsters available for manual selection.
+     */
+    fun getMonsterOptions(
+        context: Context
+    ): List<Monster> {
+
+        return loadMonsterDatabase(context)
+            .sortedBy { it.name.lowercase() }
+    }
+
     private fun buildXml(
         midi: ParsedMidi,
         monsters: List<Monster>,
-        noteDivision: Int
+        noteDivision: Int,
+        monsterAssignments: Map<Int, Int>
     ): String {
 
         val output = StringBuilder()
@@ -155,16 +205,39 @@ object MsmConverter {
 
         for ((index, track) in midi.tracks.withIndex()) {
 
-            val monster = monsters.firstOrNull {
-                it.program == track.program &&
-                it.bank == track.bank
-            } ?: throw IOException(
-                "No monster mapping found for MIDI program " +
-                "${track.program}, bank ${track.bank}. " +
-                "Check your instrument selection."
-            )
+            // First check for a manually selected monster.
+
+            val manuallySelectedId = monsterAssignments[index]
+
+            val monster = if (manuallySelectedId != null) {
+
+                monsters.firstOrNull {
+                    it.id == manuallySelectedId
+                } ?: throw IOException(
+                    "Selected monster ID $manuallySelectedId " +
+                    "does not exist in mdata.json."
+                )
+
+            } else {
+
+                // Preserve the original exact instrument mapping.
+
+                findExactMatches(
+                    monsters,
+                    track.program,
+                    track.bank
+                ).firstOrNull()
+
+                    ?: throw IOException(
+                        "No monster mapping found for MIDI program " +
+                        "${track.program}, bank ${track.bank} " +
+                        "in track ${track.name}. " +
+                        "Please select a monster for this instrument."
+                    )
+            }
 
             val monsterId = monster.id
+
             val userMonsterId = index + 1
             val userTrackId = index + 2
 
@@ -172,38 +245,59 @@ object MsmConverter {
             val y = track.posY ?: monster.y
             val flip = track.flip ?: monster.flip
 
+            // MONSTER DATA
+
             output.append("\t\t\t\t<SFSOBJECT key=\"\">\n")
+
             output.append(
                 "\t\t\t\t\t<INT key=\"flip\" value=\"$flip\"/>\n"
             )
+
             output.append(
                 "\t\t\t\t\t<INT key=\"monster\" value=\"$monsterId\"/>\n"
             )
+
             output.append(
                 "\t\t\t\t\t<INT key=\"pos_x\" value=\"$x\"/>\n"
             )
+
             output.append(
                 "\t\t\t\t\t<INT key=\"pos_y\" value=\"$y\"/>\n"
             )
+
             output.append(
                 "\t\t\t\t\t<INT key=\"muted\" value=\"${track.muted}\"/>\n"
             )
+
             output.append(
-                "\t\t\t\t\t<LONG key=\"user_monster_id\" value=\"$userMonsterId 0\"/>\n"
+                "\t\t\t\t\t<LONG key=\"user_monster_id\" " +
+                "value=\"$userMonsterId 0\"/>\n"
             )
+
             output.append(
-                "\t\t\t\t\t<DOUBLE key=\"volume\" value=\"${formatVolume(track.volume)}\"/>\n"
+                "\t\t\t\t\t<DOUBLE key=\"volume\" " +
+                "value=\"${formatVolume(track.volume)}\"/>\n"
             )
+
             output.append("\t\t\t\t</SFSOBJECT>\n")
 
+            // MONSTER-TO-TRACK ASSIGNMENT
+
             assignments.append("\t\t\t\t<SFSOBJECT key=\"\">\n")
+
             assignments.append(
-                "\t\t\t\t\t<LONG key=\"monster\" value=\"$userMonsterId 0\"/>\n"
+                "\t\t\t\t\t<LONG key=\"monster\" " +
+                "value=\"$userMonsterId 0\"/>\n"
             )
+
             assignments.append(
-                "\t\t\t\t\t<LONG key=\"track\" value=\"$userTrackId 0\"/>\n"
+                "\t\t\t\t\t<LONG key=\"track\" " +
+                "value=\"$userTrackId 0\"/>\n"
             )
+
             assignments.append("\t\t\t\t</SFSOBJECT>\n")
+
+            // NOTE CONVERSION
 
             val convertedNotes = mutableListOf<Int>()
             val noteLengths = mutableListOf<Int>()
@@ -211,27 +305,29 @@ object MsmConverter {
 
             for (note in track.notes) {
 
-                var pitch = note.pitch
+                val pitch = when (note.pitch) {
 
-                pitch = when {
-                    pitch in 36..57 -> pitch + 24
-                    pitch in 58..84 -> pitch
-                    pitch in 85..96 -> pitch - 12
+                    in 36..57 -> note.pitch + 24
+                    in 58..84 -> note.pitch
+                    in 85..96 -> note.pitch - 12
+
                     else -> throw IOException(
-                        "MIDI note $pitch is outside the supported range."
+                        "MIDI note ${note.pitch} in track " +
+                        "${track.name} is outside the supported range."
                     )
                 }
 
                 val msmNote = noteMap[pitch]
                     ?: throw IOException(
-                        "Could not convert MIDI pitch $pitch."
+                        "Could not convert MIDI pitch $pitch " +
+                        "in track ${track.name}."
                     )
 
                 val lengthTicks = note.endTick - note.startTick
 
                 if (lengthTicks <= 0) {
                     throw IOException(
-                        "A note in track ${index + 1} has zero length."
+                        "A note in track ${track.name} has zero length."
                     )
                 }
 
@@ -240,7 +336,7 @@ object MsmConverter {
 
                 if (length <= 0) {
                     throw IOException(
-                        "A note in track ${index + 1} is shorter than " +
+                        "A note in track ${track.name} is shorter than " +
                         "the selected minimum note length. " +
                         "Try 1/16 or 1/32."
                     )
@@ -251,13 +347,18 @@ object MsmConverter {
                 noteLengths.add(length)
             }
 
+            // TRACK XML
+
             trackXml.append("\t\t<SFSOBJECT key=\"\">\n")
+
             trackXml.append(
                 "\t\t\t<INT key=\"format\" value=\"2 0\"/>\n"
             )
 
             trackXml.append("\t\t\t<INTARRAY key=\"lengths\">")
-            trackXml.append(noteLengths.joinToString("") { "$it," })
+            trackXml.append(
+                noteLengths.joinToString("") { "$it," }
+            )
             trackXml.append("</INTARRAY>\n")
 
             trackXml.append(
@@ -265,42 +366,61 @@ object MsmConverter {
             )
 
             trackXml.append("\t\t\t<INTARRAY key=\"notes\">")
-            trackXml.append(convertedNotes.joinToString("") { "$it," })
+            trackXml.append(
+                convertedNotes.joinToString("") { "$it," }
+            )
             trackXml.append("</INTARRAY>\n")
 
             trackXml.append("\t\t\t<INTARRAY key=\"times\">")
-            trackXml.append(noteTimes.joinToString("") { "$it," })
+            trackXml.append(
+                noteTimes.joinToString("") { "$it," }
+            )
             trackXml.append("</INTARRAY>\n")
 
             trackXml.append(
                 "\t\t\t<LONG key=\"user\" value=\"1 0\"/>\n"
             )
+
             trackXml.append(
-                "\t\t\t<LONG key=\"user_track_id\" value=\"$userTrackId 0\"/>\n"
+                "\t\t\t<LONG key=\"user_track_id\" " +
+                "value=\"$userTrackId 0\"/>\n"
             )
 
             trackXml.append("\t\t</SFSOBJECT>\n")
         }
 
+        // CLOSE MONSTER ARRAY
+
         output.append("\t\t\t</SFSARRAY>\n")
 
         output.append(
-            "\t\t\t<STRING key=\"name\" value=\"${escapeXml(midi.songName)}\"/>\n"
+            "\t\t\t<STRING key=\"name\" " +
+            "value=\"${escapeXml(midi.songName)}\"/>\n"
         )
 
+        // SONG SETTINGS
+
         output.append("\t\t\t<SFSOBJECT key=\"song\">\n")
+
         output.append(
             "\t\t\t\t<INT key=\"key_sig\" value=\"0\"/>\n"
         )
+
         output.append(
             "\t\t\t\t<INT key=\"tempo\" value=\"${midi.tempo}\"/>\n"
         )
+
         output.append(
-            "\t\t\t\t<INT key=\"time_denom\" value=\"${midi.timeDenominator}\"/>\n"
+            "\t\t\t\t<INT key=\"time_denom\" " +
+            "value=\"${midi.timeDenominator}\"/>\n"
         )
+
         output.append(
-            "\t\t\t\t<INT key=\"time_numerator\" value=\"${midi.timeNumerator}\"/>\n"
+            "\t\t\t\t<INT key=\"time_numerator\" " +
+            "value=\"${midi.timeNumerator}\"/>\n"
         )
+
+        // TRACK ASSIGNMENTS
 
         output.append("\t\t\t\t<SFSARRAY key=\"tracks\">\n")
         output.append(assignments)
@@ -315,12 +435,15 @@ object MsmConverter {
         output.append(
             "\t\t\t<LONG key=\"user\" value=\"1 0\"/>\n"
         )
+
         output.append(
             "\t\t\t<LONG key=\"user_island_id\" value=\"1 0\"/>\n"
         )
 
         output.append("\t\t</SFSOBJECT>\n")
         output.append("\t</SFSARRAY>\n")
+
+        // FINAL TRACK ARRAY
 
         output.append("\t<SFSARRAY key=\"tracks\">\n")
         output.append(trackXml)
@@ -336,6 +459,7 @@ object MsmConverter {
     }
 
     private fun formatVolume(value: Float): String {
+
         return String.format(
             java.util.Locale.US,
             "%.6f",
@@ -344,6 +468,7 @@ object MsmConverter {
     }
 
     private fun escapeXml(value: String): String {
+
         return value
             .replace("&", "&amp;")
             .replace("\"", "&quot;")
@@ -352,4 +477,3 @@ object MsmConverter {
             .replace("'", "&apos;")
     }
 }
-
