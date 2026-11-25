@@ -1,11 +1,57 @@
+
 {
+    "32": {
+        "name": "Punkleton",
+        "pos_x": 16,
+        "pos_y": 17,
+        "flip": 0,
+        "midi_program": 34,
+        "midi_bank_select_msb": 7,
+        "pitch_segments": [[46, 60, -12]]
+    },
+    "33": {
+        "name": "Yool",
+        "pos_x": 7,
+        "pos_y": 19,
+        "flip": 0,
+        "midi_program": 34,
+        "midi_bank_select_msb": 8,
+        "pitch_segments": [[34, 60, -24]]
+    },
+    "34": {
+        "name": "Schmoochle",
+        "pos_x": 26,
+        "pos_y": 30,
+        "flip": 1,
+        "midi_program": 34,
+        "midi_bank_select_msb": 9,
+        "pitch_segments": [[46, 58, -12], [47, 60, -24]]
+    },
+    "49": {
+        "name": "Blabbit",
+        "pos_x": 30,
+        "pos_y": 17,
+        "flip": 1,
+        "midi_program": 34,
+        "midi_bank_select_msb": 10
+    },
+    "52": {
+        "name": "Hoola",
+        "pos_x": 15,
+        "pos_y": 26,
+        "flip": 0,
+        "midi_program": 34,
+        "midi_bank_select_msb": 11,
+        "pitch_segments": [[58, 70, 0], [60, 72, -12]]
+    },
     "200": {
         "name": "Tweedle",
         "pos_x": 13,
         "pos_y": 7,
         "flip": 0,
         "midi_program": 0,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 84, 0]]
     },
     "201": {
         "name": "Potbelly",
@@ -13,7 +59,8 @@
         "pos_y": 27,
         "flip": 1,
         "midi_program": 38,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 60, -24]]
     },
     "202": {
         "name": "Noggin",
@@ -29,7 +76,8 @@
         "pos_y": 23,
         "flip": 1,
         "midi_program": 53,
-        "midi_bank_select_msb": 1
+        "midi_bank_select_msb": 1,
+        "pitch_segments": [[46, 72, -12]]
     },
     "204": {
         "name": "Mammott",
@@ -37,7 +85,8 @@
         "pos_y": 27,
         "flip": 0,
         "midi_program": 58,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 60, -24]]
     },
     "205": {
         "name": "Dandidoo",
@@ -45,7 +94,8 @@
         "pos_y": 24,
         "flip": 0,
         "midi_program": 53,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 72, 0]]
     },
     "206": {
         "name": "Cybop",
@@ -53,7 +103,8 @@
         "pos_y": 19,
         "flip": 1,
         "midi_program": 81,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 59, -12], [48, 60, -24]]
     },
     "207": {
         "name": "Quibble",
@@ -61,7 +112,8 @@
         "pos_y": 8,
         "flip": 0,
         "midi_program": 1,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 60, -24]]
     },
     "208": {
         "name": "Pango",
@@ -85,7 +137,8 @@
         "pos_y": 4,
         "flip": 0,
         "midi_program": 37,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 47, -24], [34, 48, -36]]
     },
     "211": {
         "name": "Furcorn",
@@ -93,7 +146,8 @@
         "pos_y": 23,
         "flip": 0,
         "midi_program": 95,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "212": {
         "name": "Fwog",
@@ -101,7 +155,8 @@
         "pos_y": 23,
         "flip": 1,
         "midi_program": 54,
-        "midi_bank_select_msb": 1
+        "midi_bank_select_msb": 1,
+        "pitch_segments": [[46, 72, -12]]
     },
     "213": {
         "name": "Drumpler",
@@ -117,7 +172,8 @@
         "pos_y": 19,
         "flip": 0,
         "midi_program": 54,
-        "midi_bank_select_msb": 2
+        "midi_bank_select_msb": 2,
+        "pitch_segments": [[46, 72, -12]]
     },
     "215": {
         "name": "Reedling",
@@ -125,7 +181,8 @@
         "pos_y": 22,
         "flip": 1,
         "midi_program": 74,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 84, 0]]
     },
     "216": {
         "name": "Spunge",
@@ -133,7 +190,8 @@
         "pos_y": 14,
         "flip": 1,
         "midi_program": 78,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[82, 108, 24]]
     },
     "217": {
         "name": "Thumpies",
@@ -141,7 +199,8 @@
         "pos_y": 27,
         "flip": 0,
         "midi_program": 65,
-        "midi_bank_select_msb": 125
+        "midi_bank_select_msb": 125,
+        "pitch_segments": [[34, 60, -24]]
     },
     "218": {
         "name": "Scups",
@@ -157,7 +216,8 @@
         "pos_y": 21,
         "flip": 1,
         "midi_program": 54,
-        "midi_bank_select_msb": 3
+        "midi_bank_select_msb": 3,
+        "pitch_segments": [[46, 72, -12]]
     },
     "220": {
         "name": "Congle",
@@ -189,7 +249,8 @@
         "pos_y": 2,
         "flip": 0,
         "midi_program": 44,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "224": {
         "name": "T-Rox",
@@ -213,7 +274,8 @@
         "pos_y": 17,
         "flip": 0,
         "midi_program": 52,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "227": {
         "name": "Deedge",
@@ -229,7 +291,8 @@
         "pos_y": 13,
         "flip": 0,
         "midi_program": 30,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 60, -24]]
     },
     "229": {
         "name": "Entbrat",
@@ -237,7 +300,8 @@
         "pos_y": 13,
         "flip": 0,
         "midi_program": 101,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "250": {
         "name": "Dipsters",
@@ -245,7 +309,8 @@
         "pos_y": 24,
         "flip": 0,
         "midi_program": 80,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "251": {
         "name": "Rare Reedling",
@@ -269,7 +334,8 @@
         "pos_y": 26,
         "flip": 1,
         "midi_program": 86,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 84, 0]]
     },
     "254": {
         "name": "Rare Thumpies",
@@ -293,7 +359,8 @@
         "pos_y": 2,
         "flip": 0,
         "midi_program": 33,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[22, 48, -36]]
     },
     "257": {
         "name": "Rare Quibble",
@@ -301,7 +368,8 @@
         "pos_y": 4,
         "flip": 0,
         "midi_program": 6,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[34, 60, -24]]
     },
     "258": {
         "name": "Rare Congle",
@@ -349,7 +417,8 @@
         "pos_y": 15,
         "flip": 1,
         "midi_program": 45,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "264": {
         "name": "Rare Noggin",
@@ -381,7 +450,8 @@
         "pos_y": 5,
         "flip": 1,
         "midi_program": 84,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "268": {
         "name": "Grumpyre",
@@ -389,7 +459,8 @@
         "pos_y": 26,
         "flip": 0,
         "midi_program": 85,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 58, -12], [47, 60, -24]]
     },
     "269": {
         "name": "Reebro",
@@ -405,7 +476,8 @@
         "pos_y": 18,
         "flip": 0,
         "midi_program": 9,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 84, 0]]
     },
     "271": {
         "name": "Humbug",
@@ -413,7 +485,8 @@
         "pos_y": 3,
         "flip": 1,
         "midi_program": 30,
-        "midi_bank_select_msb": 1
+        "midi_bank_select_msb": 1,
+        "pitch_segments": [[46, 72, -12]]
     },
     "272": {
         "name": "Whisp",
@@ -429,7 +502,8 @@
         "pos_y": 8,
         "flip": 1,
         "midi_program": 34,
-        "midi_bank_select_msb": 4
+        "midi_bank_select_msb": 4,
+        "pitch_segments": [[34, 60, -24]]
     },
     "274": {
         "name": "Sox",
@@ -437,7 +511,8 @@
         "pos_y": 14,
         "flip": 0,
         "midi_program": 64,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "275": {
         "name": "Jellbilly",
@@ -445,7 +520,8 @@
         "pos_y": 6,
         "flip": 0,
         "midi_program": 34,
-        "midi_bank_select_msb": 5
+        "midi_bank_select_msb": 5,
+        "pitch_segments": [[34, 60, -24]]
     },
     "276": {
         "name": "Arackulele",
@@ -453,7 +529,8 @@
         "pos_y": 5,
         "flip": 0,
         "midi_program": 25,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "277": {
         "name": "Boodoo",
@@ -469,7 +546,8 @@
         "pos_y": 6,
         "flip": 0,
         "midi_program": 34,
-        "midi_bank_select_msb": 6
+        "midi_bank_select_msb": 6,
+        "pitch_segments": [[34, 47, -24], [35, 47, -36]]
     },
     "279": {
         "name": "Bellowfish",
@@ -477,7 +555,8 @@
         "pos_y": 19,
         "flip": 0,
         "midi_program": 21,
-        "midi_bank_select_msb": 0
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[46, 72, -12]]
     },
     "280": {
         "name": "Dragonk",
@@ -493,46 +572,7 @@
         "pos_y": 32,
         "flip": 1,
         "midi_program": 48,
-        "midi_bank_select_msb": 0
-    },
-    "32": {
-        "name": "Punkleton",
-        "pos_x": 16,
-        "pos_y": 17,
-        "flip": 0,
-        "midi_program": 34,
-        "midi_bank_select_msb": 7
-    },
-    "33": {
-        "name": "Yool",
-        "pos_x": 7,
-        "pos_y": 19,
-        "flip": 0,
-        "midi_program": 34,
-        "midi_bank_select_msb": 8
-    },
-    "34": {
-        "name": "Schmoochle",
-        "pos_x": 26,
-        "pos_y": 30,
-        "flip": 1,
-        "midi_program": 34,
-        "midi_bank_select_msb": 9
-    },
-    "49": {
-        "name": "Blabbit",
-        "pos_x": 30,
-        "pos_y": 17,
-        "flip": 1,
-        "midi_program": 34,
-        "midi_bank_select_msb": 10
-    },
-    "52": {
-        "name": "Hoola",
-        "pos_x": 15,
-        "pos_y": 26,
-        "flip": 0,
-        "midi_program": 34,
-        "midi_bank_select_msb": 11
+        "midi_bank_select_msb": 0,
+        "pitch_segments": [[58, 84, 0]]
     }
 }
