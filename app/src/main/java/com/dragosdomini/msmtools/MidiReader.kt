@@ -1,5 +1,5 @@
 
-package com.dragosdomini.msmtools
+package com.cyndyrfyrestudios.msmtools
 
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
