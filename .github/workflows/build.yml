@@ -38,6 +38,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: MSM-Tools-APK
-          path: app/build/outputs/apk/debug/MSMCMT.apk
+          path: app/build/outputs/apk/debug/app-debug-MSMCMT.apk
           if-no-files-found: error
           retention-days: 14
