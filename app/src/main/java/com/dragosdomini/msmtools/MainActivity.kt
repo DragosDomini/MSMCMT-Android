@@ -1,5 +1,5 @@
 
-package com.cyndyrfyrestudios.msmtools
+package com.cyndyrfyrestudios.msmcmt
 
 import android.app.AlertDialog
 import android.content.Intent
