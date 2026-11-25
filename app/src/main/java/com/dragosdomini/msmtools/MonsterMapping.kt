@@ -1,5 +1,5 @@
 
-package com.dragosdomini.msmtools
+package com.cyndyrfyrestudios.msmtools
 
 import android.content.Context
 import org.json.JSONArray
