@@ -1,7 +1,6 @@
 
 package com.dragosdomini.msmtools
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
@@ -17,9 +16,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
-import java.io.InputStream
+import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : ComponentActivity() {
 
@@ -27,20 +25,25 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MSMConverter"
     }
 
-    private var selectedMonsterId: Int = -1
-    private var midiPitches: List<Int> = emptyList()
+    private var parsedMidi: ParsedMidi? = null
     private var midiUri: Uri? = null
 
-    private lateinit var mainLayout: LinearLayout
-    private lateinit var statusText: TextView
-    private lateinit var monsterText: TextView
-    private lateinit var compatibilityText: TextView
-    private lateinit var recommendationLayout: LinearLayout
+    // Each MIDI part receives its own monster assignment.
+    private val assignments = mutableMapOf<Int, String>()
 
-    private val backgroundColor = Color.rgb(31, 43, 46)
-    private val cardColor = Color.rgb(48, 65, 67)
+    private val selectedResults =
+        mutableMapOf<Int, MonsterCompatibility>()
+
+    private lateinit var statusText: TextView
+    private lateinit var songInfoText: TextView
+    private lateinit var trackContainer: LinearLayout
+    private lateinit var content: LinearLayout
+
+    private val backgroundColor = Color.rgb(29, 40, 43)
+    private val cardColor = Color.rgb(47, 64, 66)
     private val accentColor = Color.rgb(116, 207, 173)
     private val textColor = Color.WHITE
+    private val mutedColor = Color.rgb(185, 201, 198)
 
     private val midiPicker =
         registerForActivityResult(
@@ -49,49 +52,44 @@ class MainActivity : ComponentActivity() {
 
             if (uri != null) {
                 midiUri = uri
-                loadMidi(uri)
+                importMidi(uri)
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        try {
-            buildInterface()
-            loadMonsterDatabase()
-        } catch (e: Exception) {
-            Log.e(TAG, "Startup error", e)
-            showStartupError(e)
-        }
+        buildInterface()
+        loadDatabase()
     }
+
+    // --------------------------------------------------
+    // MAIN INTERFACE
+    // --------------------------------------------------
 
     private fun buildInterface() {
 
-        mainLayout = LinearLayout(this).apply {
+        val scroll = ScrollView(this)
+
+        content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 24, 20, 24)
+            setPadding(18, 20, 18, 30)
             setBackgroundColor(backgroundColor)
-        }
-
-        val scrollView = ScrollView(this)
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
         }
 
         val header = TextView(this).apply {
             text = "MSM CONVERTER"
-            textSize = 27f
-            setTextColor(accentColor)
+            textSize = 28f
             typeface = Typeface.DEFAULT_BOLD
+            setTextColor(accentColor)
             gravity = Gravity.CENTER
-            setPadding(0, 15, 0, 8)
+            setPadding(0, 16, 0, 6)
         }
 
         val subtitle = TextView(this).apply {
-            text = "MIDI composition and monster pitch mapping"
-            textSize = 13f
-            setTextColor(textColor)
+            text = "MIDI to Monster Composition"
+            textSize = 14f
+            setTextColor(mutedColor)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 24)
         }
@@ -99,7 +97,7 @@ class MainActivity : ComponentActivity() {
         content.addView(header)
         content.addView(subtitle)
 
-        content.addView(createSection("COMPOSITION"))
+        content.addView(section("COMPOSITION"))
 
         content.addView(
             createButton("Import MIDI composition") {
@@ -113,580 +111,723 @@ class MainActivity : ComponentActivity() {
             }
         )
 
-        statusText = createText(
-            "No MIDI composition loaded."
+        statusText = createCardText(
+            "Waiting for a MIDI composition."
         )
 
         content.addView(statusText)
 
-        content.addView(createSection("MONSTER ASSIGNMENT"))
-
-        monsterText = createText(
-            "No monster selected."
+        songInfoText = createCardText(
+            "Song information will appear here."
         )
 
-        content.addView(monsterText)
+        content.addView(songInfoText)
 
-        content.addView(
-            createButton("Select monster") {
-                showMonsterPicker()
-            }
-        )
+        content.addView(section("MONSTER ASSIGNMENTS"))
 
-        content.addView(createSection("PITCH COMPATIBILITY"))
+        val explanation = TextView(this).apply {
+            text =
+                "Each MIDI part is analyzed independently. " +
+                "If its assigned monster cannot play the entire " +
+                "part, alternative monsters are recommended."
+            textSize = 13f
+            setTextColor(mutedColor)
+            setPadding(4, 4, 4, 14)
+        }
 
-        compatibilityText = createText(
-            "Import a MIDI file to analyze compatibility."
-        )
+        content.addView(explanation)
 
-        content.addView(compatibilityText)
-
-        content.addView(
-            createButton("Analyze composition") {
-                analyzeSelectedMonster()
-            }
-        )
-
-        content.addView(createSection("RECOMMENDED MONSTERS"))
-
-        recommendationLayout = LinearLayout(this).apply {
+        trackContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
 
-        content.addView(recommendationLayout)
+        content.addView(trackContainer)
 
-        content.addView(createSection("CONVERSION"))
+        content.addView(section("CONVERSION"))
 
         content.addView(
-            createButton("Prepare MSM conversion") {
-                prepareConversion()
+            createButton("Validate all assignments") {
+                validateAllAssignments()
             }
         )
 
-        scrollView.addView(content)
-
-        mainLayout.addView(
-            scrollView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
+        content.addView(
+            createButton("Refresh recommendations") {
+                analyzeAllTracks()
+            }
         )
 
-        setContentView(mainLayout)
+        scroll.addView(content)
+        setContentView(scroll)
     }
 
-    private fun loadMonsterDatabase() {
+    private fun loadDatabase() {
 
         try {
             val monsters = MonsterMapping.load(this)
 
             if (monsters.isEmpty()) {
                 throw IllegalStateException(
-                    "Monster database contains no valid entries."
+                    "No monsters were found in mdata.json."
                 )
             }
 
             statusText.text =
-                "Monster database loaded: ${monsters.size} monsters."
-
-            Log.i(TAG, "Loaded ${monsters.size} monsters")
+                "Monster database ready: ${monsters.size} monsters."
 
         } catch (e: Exception) {
 
-            Log.e(TAG, "Monster database loading failed", e)
+            Log.e(TAG, "Database loading failed", e)
 
             statusText.text =
-                "Database error: ${e.localizedMessage}"
+                "Database error: ${e.message}"
 
             showMessage(
-                "Monster database error",
-                e.localizedMessage ?: "Unable to load mdata.json"
+                "Database error",
+                e.message ?: "Unable to load monster database."
             )
         }
     }
 
-    private fun loadMidi(uri: Uri) {
+    // --------------------------------------------------
+    // MIDI IMPORT
+    // --------------------------------------------------
+
+    private fun importMidi(uri: Uri) {
 
         try {
 
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+                // Temporary access is sufficient for this import.
+            }
 
-        } catch (_: Exception) {
-            // Some document providers do not support persistence.
-        }
-
-        try {
-
-            val input = contentResolver.openInputStream(uri)
+            val bytes = contentResolver
+                .openInputStream(uri)
+                ?.use { it.readBytes() }
                 ?: throw IllegalStateException(
-                    "Unable to open selected MIDI file."
+                    "Unable to open MIDI file."
                 )
 
-            input.use {
-                val bytes = it.readBytes()
+            val result = MidiReader.read(bytes)
 
-                if (bytes.size < 14 ||
-                    String(bytes, 0, 4, Charsets.US_ASCII) != "MThd"
-                ) {
-                    throw IllegalArgumentException(
-                        "The selected file is not a valid MIDI file."
+            if (result.tracks.isEmpty()) {
+                throw IllegalArgumentException(
+                    "No playable MIDI parts were found."
+                )
+            }
+
+            parsedMidi = result
+
+            // New composition means new assignments.
+            assignments.clear()
+            selectedResults.clear()
+
+            statusText.text =
+                "MIDI imported successfully."
+
+            songInfoText.text = buildString {
+                append("Song: ${result.songName}\n")
+                append("Tempo: ${result.tempo} BPM\n")
+                append(
+                    "Time signature: " +
+                    "${result.timeNumerator}/" +
+                    "${result.timeDenominator}\n"
+                )
+                append("MIDI parts: ${result.tracks.size}\n")
+                append("Notes: ${result.tracks.sumOf { it.notes.size }}")
+            }
+
+            analyzeAllTracks()
+
+        } catch (e: Exception) {
+
+            Log.e(TAG, "MIDI import failed", e)
+
+            parsedMidi = null
+            assignments.clear()
+            selectedResults.clear()
+
+            statusText.text =
+                "MIDI import failed: ${e.message}"
+
+            trackContainer.removeAllViews()
+
+            showMessage(
+                "MIDI import error",
+                e.message ?: "Unable to read MIDI file."
+            )
+        }
+    }
+
+    // --------------------------------------------------
+    // TRACK ANALYSIS
+    // --------------------------------------------------
+
+    private fun analyzeAllTracks() {
+
+        val midi = parsedMidi ?: return
+
+        trackContainer.removeAllViews()
+        selectedResults.clear()
+
+        midi.tracks.forEachIndexed { index, track ->
+
+            if (track.notes.isEmpty()) return@forEachIndexed
+
+            val pitches = track.notes.map { it.pitch }
+
+            val assignedId = assignments[index]
+
+            if (assignedId != null) {
+
+                val monster = MonsterMapping.getMonster(assignedId)
+
+                if (monster != null) {
+
+                    val result =
+                        MonsterMapping.analyzeCompatibility(
+                            monster,
+                            pitches
+                        )
+
+                    selectedResults[index] = result
+
+                    // Automatically recommend alternatives
+                    // when the current monster cannot play all notes.
+                    if (!result.accommodatesEntireTrack) {
+
+                        val alternatives =
+                            MonsterMapping.rankAlternatives(
+                                pitches,
+                                assignedId
+                            )
+
+                        if (alternatives.isNotEmpty()) {
+                            addTrackCard(
+                                index,
+                                track,
+                                result,
+                                alternatives
+                            )
+                            return@forEachIndexed
+                        }
+                    }
+
+                    addTrackCard(
+                        index,
+                        track,
+                        result,
+                        emptyList()
+                    )
+
+                    return@forEachIndexed
+                }
+            }
+
+            // No assignment yet: automatically find the best match.
+            val alternatives =
+                MonsterMapping.rankAlternatives(pitches)
+
+            if (alternatives.isEmpty()) {
+
+                addNoMatchCard(index, track.name)
+
+            } else {
+
+                val best = alternatives.first()
+
+                addTrackCard(
+                    index,
+                    track,
+                    best,
+                    alternatives.drop(1),
+                    awaitingInitialApproval = true
+                )
+            }
+        }
+
+        if (trackContainer.childCount == 0) {
+            trackContainer.addView(
+                createCardText(
+                    "No pitched notes were found in the MIDI parts."
+                )
+            )
+        }
+    }
+
+    // --------------------------------------------------
+    // TRACK CARDS
+    // --------------------------------------------------
+
+    private fun addTrackCard(
+        index: Int,
+        track: MidiTrackData,
+        result: MonsterCompatibility,
+        alternatives: List<MonsterCompatibility>,
+        awaitingInitialApproval: Boolean = false
+    ) {
+
+        val card = createCard()
+
+        card.addView(
+            cardHeading(
+                "PART ${index + 1}: ${track.name}"
+            )
+        )
+
+        card.addView(
+            detailText(
+                "Notes: ${track.notes.size}\n" +
+                "Instrument program: ${track.program}\n" +
+                "Selected monster: ${result.monster.name}"
+            )
+        )
+
+        card.addView(
+            compatibilityIndicator(result)
+        )
+
+        if (awaitingInitialApproval) {
+
+            card.addView(
+                detailText(
+                    "The app found a recommended monster. " +
+                    "Approve it to create this assignment."
+                )
+            )
+
+            card.addView(
+                createButton("Approve recommended monster") {
+                    requestAssignmentApproval(
+                        index,
+                        result,
+                        initialAssignment = true
+                    )
+                }
+            )
+
+        } else {
+
+            card.addView(
+                createButton("Change monster") {
+                    showMonsterPicker(index, track)
+                }
+            )
+        }
+
+        if (alternatives.isNotEmpty()) {
+
+            card.addView(
+                section("ALTERNATIVE MONSTERS")
+            )
+
+            alternatives.take(5).forEachIndexed { rank, alternative ->
+
+                val alternativeCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(12, 12, 12, 12)
+                    background = rounded(
+                        Color.rgb(58, 77, 78),
+                        12f
                     )
                 }
 
-                midiPitches = readMidiPitches(bytes)
-            }
+                val alternativeName = cardHeading(
+                    "#${rank + 1} ${alternative.monster.name}"
+                )
 
-            statusText.text =
-                "MIDI loaded successfully.\n" +
-                "Notes found: ${midiPitches.size}"
+                alternativeCard.addView(alternativeName)
 
-            if (midiPitches.isEmpty()) {
-                compatibilityText.text =
-                    "No pitched MIDI notes were found."
-            } else {
-                compatibilityText.text =
-                    "MIDI ready for monster compatibility analysis."
-            }
+                alternativeCard.addView(
+                    detailText(
+                        "${alternative.score}% compatibility\n" +
+                        "${alternative.compatibleNotes}/" +
+                        "${alternative.totalNotes} notes accommodated\n" +
+                        "Octave adjustment: " +
+                        "${alternative.octaveShift} semitones"
+                    )
+                )
 
-        } catch (e: Exception) {
-
-            Log.e(TAG, "MIDI loading failed", e)
-
-            midiPitches = emptyList()
-
-            statusText.text =
-                "MIDI loading failed: ${e.localizedMessage}"
-
-            showMessage(
-                "MIDI error",
-                e.localizedMessage ?: "Unable to read MIDI."
-            )
-        }
-    }
-
-    /**
-     * Reads MIDI note-on events.
-     *
-     * Full timing, tempo and track conversion remain
-     * the responsibility of the existing MidiReader.
-     */
-    private fun readMidiPitches(bytes: ByteArray): List<Int> {
-
-        var position = 0
-        val pitches = mutableListOf<Int>()
-
-        fun readInt(): Int {
-            require(position + 4 <= bytes.size)
-            val value =
-                ((bytes[position].toInt() and 255) shl 24) or
-                ((bytes[position + 1].toInt() and 255) shl 16) or
-                ((bytes[position + 2].toInt() and 255) shl 8) or
-                (bytes[position + 3].toInt() and 255)
-
-            position += 4
-            return value
-        }
-
-        fun readUnsignedShort(): Int {
-            require(position + 2 <= bytes.size)
-            val value =
-                ((bytes[position].toInt() and 255) shl 8) or
-                (bytes[position + 1].toInt() and 255)
-
-            position += 2
-            return value
-        }
-
-        fun readVariableLength(): Int {
-            var value = 0
-            var count = 0
-
-            while (position < bytes.size && count < 4) {
-                val b = bytes[position++].toInt() and 255
-                value = (value shl 7) or (b and 127)
-                count++
-
-                if ((b and 128) == 0) return value
-            }
-
-            throw IllegalArgumentException(
-                "Invalid MIDI variable-length value."
-            )
-        }
-
-        require(String(bytes, 0, 4, Charsets.US_ASCII) == "MThd")
-
-        position = 4
-
-        val headerLength = readInt()
-        require(headerLength >= 6)
-        require(position + headerLength <= bytes.size)
-
-        val format = readUnsignedShort()
-        val trackCount = readUnsignedShort()
-        readUnsignedShort()
-
-        require(format in 0..2)
-        require(trackCount > 0)
-
-        position = 8 + headerLength
-
-        repeat(trackCount) {
-
-            require(position + 8 <= bytes.size)
-
-            val marker = String(
-                bytes,
-                position,
-                4,
-                Charsets.US_ASCII
-            )
-
-            require(marker == "MTrk") {
-                "Invalid MIDI track header."
-            }
-
-            position += 4
-
-            val trackLength = readInt()
-
-            require(trackLength >= 0)
-            require(position + trackLength <= bytes.size)
-
-            val trackEnd = position + trackLength
-
-            var runningStatus = 0
-
-            while (position < trackEnd) {
-
-                readVariableLength()
-
-                if (position >= trackEnd) break
-
-                var status = bytes[position].toInt() and 255
-
-                if (status >= 128) {
-                    position++
-                    runningStatus = status
-                } else {
-                    require(runningStatus >= 128)
-                    status = runningStatus
-                }
-
-                when {
-
-                    status == 0xFF -> {
-                        position++
-                        val length = readVariableLength()
-                        require(position + length <= trackEnd)
-                        position += length
-                    }
-
-                    status == 0xF0 || status == 0xF7 -> {
-                        val length = readVariableLength()
-                        require(position + length <= trackEnd)
-                        position += length
-                        runningStatus = 0
-                    }
-
-                    status >= 0xF0 -> {
-                        throw IllegalArgumentException(
-                            "Unsupported MIDI system event."
+                alternativeCard.addView(
+                    createButton("Review this monster") {
+                        requestAssignmentApproval(
+                            index,
+                            alternative
                         )
                     }
+                )
 
-                    else -> {
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
 
-                        val command = status and 0xF0
-                        val dataLength =
-                            if (command == 0xC0 || command == 0xD0) 1
-                            else 2
+                params.bottomMargin = 10
 
-                        require(position + dataLength <= trackEnd)
-
-                        val note = bytes[position].toInt() and 255
-
-                        if (command == 0x90 && dataLength == 2) {
-
-                            val velocity =
-                                bytes[position + 1].toInt() and 255
-
-                            if (velocity > 0) {
-                                pitches.add(note)
-                            }
-                        }
-
-                        position += dataLength
-                    }
-                }
+                card.addView(alternativeCard, params)
             }
-
-            position = trackEnd
         }
 
-        return pitches
+        trackContainer.addView(card)
     }
 
-    private fun showMonsterPicker() {
+    private fun addNoMatchCard(
+        index: Int,
+        name: String
+    ) {
+
+        val card = createCard()
+
+        card.addView(
+            cardHeading("PART ${index + 1}: $name")
+        )
+
+        card.addView(
+            detailText(
+                "No monsters with usable pitch data " +
+                "were found for this part."
+            )
+        )
+
+        card.addView(
+            createButton("Choose monster manually") {
+                parsedMidi?.tracks?.getOrNull(index)?.let {
+                    showMonsterPicker(index, it)
+                }
+            }
+        )
+
+        trackContainer.addView(card)
+    }
+
+    // --------------------------------------------------
+    // COMPATIBILITY DISPLAY
+    // --------------------------------------------------
+
+    private fun compatibilityIndicator(
+        result: MonsterCompatibility
+    ): View {
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            background = rounded(
+                when {
+                    result.accommodatesEntireTrack ->
+                        Color.rgb(35, 91, 70)
+
+                    result.score > 0 ->
+                        Color.rgb(110, 79, 36)
+
+                    else ->
+                        Color.rgb(105, 47, 47)
+                },
+                12f
+            )
+        }
+
+        val heading = TextView(this).apply {
+            text = when {
+                result.accommodatesEntireTrack ->
+                    "FULL TRACK COMPATIBILITY"
+
+                result.score > 0 ->
+                    "PARTIAL COMPATIBILITY"
+
+                else ->
+                    "INCOMPATIBLE"
+            }
+
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+
+        val score = TextView(this).apply {
+            text = "${result.score}%"
+            textSize = 25f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+
+        val details = TextView(this).apply {
+            text =
+                "${result.compatibleNotes}/${result.totalNotes} " +
+                "notes accommodated\n" +
+                "${result.incompatibleNotes} notes outside range\n" +
+                "Octave adjustment: ${result.octaveShift} semitones\n\n" +
+                result.explanation
+
+            textSize = 12f
+            setTextColor(Color.WHITE)
+        }
+
+        container.addView(heading)
+        container.addView(score)
+        container.addView(details)
+
+        return container
+    }
+
+    // --------------------------------------------------
+    // MANUAL MONSTER SELECTION
+    // --------------------------------------------------
+
+    private fun showMonsterPicker(
+        trackIndex: Int,
+        track: MidiTrackData
+    ) {
 
         val monsters = MonsterMapping.getAllMonsters()
 
         if (monsters.isEmpty()) {
             showMessage(
                 "No monsters",
-                "The monster database has not loaded."
+                "The monster database is unavailable."
             )
             return
         }
 
-        val names = monsters.map { it.name }.toTypedArray()
+        val pitches = track.notes.map { it.pitch }
+
+        val ranked = monsters.map { monster ->
+            MonsterMapping.analyzeCompatibility(
+                monster,
+                pitches
+            )
+        }.sortedWith(
+            compareByDescending<MonsterCompatibility> {
+                it.accommodatesEntireTrack
+            }.thenByDescending {
+                it.compatibleNotes
+            }.thenByDescending {
+                it.score
+            }
+        )
+
+        val labels = ranked.map {
+            "${it.monster.name} — ${it.score}%"
+        }.toTypedArray()
 
         AlertDialog.Builder(this)
-            .setTitle("Choose your monster")
-            .setItems(names) { _, index ->
+            .setTitle("Choose monster for ${track.name}")
+            .setItems(labels) { _, position ->
 
-                val selected = monsters[index]
-
-                if (selectedMonsterId == -1) {
-
-                    selectedMonsterId =
-                        selected.id.toIntOrNull() ?: -1
-
-                    updateMonsterDisplay()
-
-                } else {
-
-                    requestManualAssignment(selected.id)
-                }
+                requestAssignmentApproval(
+                    trackIndex,
+                    ranked[position]
+                )
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun requestManualAssignment(monsterId: String) {
+    // --------------------------------------------------
+    // APPROVAL SYSTEM
+    // --------------------------------------------------
 
-        val proposed = monsterId.toIntOrNull() ?: return
+    private fun requestAssignmentApproval(
+        trackIndex: Int,
+        result: MonsterCompatibility,
+        initialAssignment: Boolean = false
+    ) {
 
-        val monster = MonsterMapping.getMonster(monsterId)
-            ?: return
+        val monsterId = result.monster.id
+
+        val currentId = assignments[trackIndex]
+
+        val currentName = currentId?.let {
+            MonsterMapping.getMonster(it)?.name
+        } ?: "Unassigned"
+
+        val warning = when {
+            result.accommodatesEntireTrack ->
+                "All notes fit this monster."
+
+            result.compatibleNotes > 0 ->
+                "${result.incompatibleNotes} notes remain outside its range."
+
+            else ->
+                "This monster cannot accommodate the track."
+        }
+
+        val message = buildString {
+
+            append("Current assignment: $currentName\n\n")
+            append("Proposed monster: ${result.monster.name}\n")
+            append("Compatibility: ${result.score}%\n")
+            append(
+                "Notes accommodated: " +
+                "${result.compatibleNotes}/${result.totalNotes}\n"
+            )
+            append(
+                "Octave adjustment: " +
+                "${result.octaveShift} semitones\n\n"
+            )
+            append(warning)
+            append("\n\nYour assignment will only change after approval.")
+        }
 
         AlertDialog.Builder(this)
-            .setTitle("Change monster?")
-            .setMessage(
-                "Change the selected monster to ${monster.name}?\n\n" +
-                "The current assignment will remain unchanged " +
-                "until you approve."
+            .setTitle(
+                if (initialAssignment) {
+                    "Approve initial monster?"
+                } else {
+                    "Approve monster change?"
+                }
             )
-            .setNegativeButton("Cancel", null)
+            .setMessage(message)
+            .setNegativeButton(
+                if (initialAssignment) "Leave unassigned"
+                else "Keep current"
+            ) { _, _ ->
+                // No assignment change.
+            }
             .setPositiveButton("Approve") { _, _ ->
 
-                selectedMonsterId = proposed
+                assignments[trackIndex] = monsterId
 
-                updateMonsterDisplay()
-                analyzeSelectedMonster()
+                Toast.makeText(
+                    this,
+                    "${result.monster.name} assigned.",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                analyzeAllTracks()
             }
             .show()
     }
 
-    private fun updateMonsterDisplay() {
+    // --------------------------------------------------
+    // CONVERSION VALIDATION
+    // --------------------------------------------------
 
-        val monster = MonsterMapping.getMonster(
-            selectedMonsterId.toString()
-        )
+    private fun validateAllAssignments() {
 
-        monsterText.text =
-            "Selected monster: ${monster?.name ?: "None"}"
-    }
+        val midi = parsedMidi
 
-    private fun analyzeSelectedMonster() {
-
-        if (midiPitches.isEmpty()) {
+        if (midi == null) {
             showMessage(
-                "No MIDI notes",
-                "Import a MIDI composition first."
+                "No composition",
+                "Import a MIDI file first."
             )
             return
         }
 
-        if (selectedMonsterId < 0) {
-            showMonsterPicker()
-            return
-        }
+        val missing = mutableListOf<String>()
+        val incompatible = mutableListOf<String>()
+        var validated = 0
 
-        val result = MonsterMapping.analyzeSelectedMonster(
-            selectedMonsterId.toString(),
-            midiPitches
-        )
+        midi.tracks.forEachIndexed { index, track ->
 
-        if (result == null) {
-            showMessage(
-                "Monster unavailable",
-                "The selected monster could not be found."
-            )
-            return
-        }
+            if (track.notes.isEmpty()) return@forEachIndexed
 
-        compatibilityText.text = buildString {
+            val monsterId = assignments[index]
 
-            append("Monster: ${result.monster.name}\n")
-            append("Compatibility: ${result.score}%\n")
-            append("Compatible notes: ")
-            append("${result.compatibleNotes}/${result.totalNotes}\n")
-            append("Incompatible notes: ")
-            append("${result.incompatibleNotes}\n")
-            append("Octave adjustment: ")
-            append("${result.octaveShift} semitones\n\n")
-            append(result.explanation)
-        }
-
-        showAlternatives()
-    }
-
-    private fun showAlternatives() {
-
-        recommendationLayout.removeAllViews()
-
-        val alternatives = MonsterMapping.rankAlternatives(
-            midiPitches,
-            selectedMonsterId.toString()
-        )
-
-        alternatives.take(10).forEachIndexed { index, result ->
-
-            val card = TextView(this).apply {
-
-                text = buildString {
-                    append("#${index + 1} ${result.monster.name}\n")
-                    append("Compatibility: ${result.score}%\n")
-                    append("Notes: ")
-                    append("${result.compatibleNotes}/${result.totalNotes}\n")
-                    append("Octave adjustment: ")
-                    append("${result.octaveShift}\n")
-                    append(result.explanation)
-                    append("\n\nTap to review assignment")
-                }
-
-                textSize = 14f
-                setTextColor(textColor)
-                setPadding(18, 18, 18, 18)
-                background = rounded(cardColor, 16f)
-                isClickable = true
-                isFocusable = true
-
-                setOnClickListener {
-                    requestAlternativeApproval(result)
-                }
+            if (monsterId == null) {
+                missing.add(track.name)
+                return@forEachIndexed
             }
+
+            val monster = MonsterMapping.getMonster(monsterId)
+
+            if (monster == null) {
+                missing.add(track.name)
+                return@forEachIndexed
+            }
+
+            val result = MonsterMapping.analyzeCompatibility(
+                monster,
+                track.notes.map { it.pitch }
+            )
+
+            if (!result.accommodatesEntireTrack) {
+                incompatible.add(
+                    "${track.name}: ${result.score}%"
+                )
+            } else {
+                validated++
+            }
+        }
+
+        val message = buildString {
+
+            append("Fully compatible parts: $validated\n\n")
+
+            if (missing.isNotEmpty()) {
+                append("Unassigned parts:\n")
+                missing.forEach { append("- $it\n") }
+                append("\n")
+            }
+
+            if (incompatible.isNotEmpty()) {
+                append("Parts needing attention:\n")
+                incompatible.forEach { append("- $it\n") }
+            }
+
+            if (missing.isEmpty() && incompatible.isEmpty()) {
+                append("All assignments accommodate their entire tracks.")
+            } else {
+                append(
+                    "\nReview the recommendations before conversion."
+                )
+            }
+        }
+
+        showMessage("Assignment validation", message)
+    }
+
+    // --------------------------------------------------
+    // UI HELPERS
+    // --------------------------------------------------
+
+    private fun createCard(): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(15, 15, 15, 15)
+            background = rounded(cardColor, 18f)
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
 
-            params.bottomMargin = 12
-
-            recommendationLayout.addView(card, params)
-        }
-    }
-
-    private fun requestAlternativeApproval(
-        result: MonsterCompatibility
-    ) {
-
-        val proposedId =
-            result.monster.id.toIntOrNull() ?: return
-
-        val warning = if (result.accommodatesEntireTrack) {
-            "Every note fits this monster."
-        } else {
-            "${result.incompatibleNotes} notes remain incompatible."
+            params.bottomMargin = 16
+            layoutParams = params
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Approve monster change?")
-            .setMessage(
-                "Current monster: ${
-                    MonsterMapping.getMonster(
-                        selectedMonsterId.toString()
-                    )?.name ?: "Unknown"
-                }\n\n" +
-                "New monster: ${result.monster.name}\n" +
-                "Compatibility: ${result.score}%\n" +
-                "Octave adjustment: ${result.octaveShift}\n\n" +
-                warning
-            )
-            .setNegativeButton("Keep current", null)
-            .setPositiveButton("Approve change") { _, _ ->
-
-                selectedMonsterId = proposedId
-
-                updateMonsterDisplay()
-                analyzeSelectedMonster()
-            }
-            .show()
-    }
-
-    private fun prepareConversion() {
-
-        if (midiPitches.isEmpty()) {
-            showMessage(
-                "Missing MIDI",
-                "Import a MIDI composition first."
-            )
-            return
-        }
-
-        if (selectedMonsterId < 0) {
-            showMessage(
-                "Missing monster",
-                "Select a monster first."
-            )
-            return
-        }
-
-        val result = MsmPitchConverter.convertTrack(
-            monsterId = selectedMonsterId,
-            midiPitches = midiPitches,
-            allowOctaveAdjustment = true,
-            allowNearestPitchFallback = false
-        )
-
-        if (!result.success) {
-
-            showMessage(
-                "Conversion unavailable",
-                result.message
-            )
-
-            return
-        }
-
-        showMessage(
-            "Pitch conversion verified",
-            "${result.monsterName}\n\n" +
-                "${result.convertedNotes.size} notes converted.\n" +
-                "Octave adjustment: ${result.octaveShift}\n\n" +
-                "Pitch validation succeeded. " +
-                "The existing MSM serialization step still needs to " +
-                "generate the final song file."
-        )
-    }
-
-    private fun createSection(title: String): TextView =
+    private fun section(title: String): TextView =
         TextView(this).apply {
             text = title
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(accentColor)
-            setPadding(0, 22, 0, 10)
+            setPadding(0, 18, 0, 10)
         }
 
-    private fun createText(value: String): TextView =
+    private fun cardHeading(title: String): TextView =
+        TextView(this).apply {
+            text = title
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(textColor)
+            setPadding(0, 4, 0, 10)
+        }
+
+    private fun detailText(value: String): TextView =
+        TextView(this).apply {
+            text = value
+            textSize = 13f
+            setTextColor(mutedColor)
+            setPadding(0, 6, 0, 12)
+        }
+
+    private fun createCardText(value: String): TextView =
         TextView(this).apply {
             text = value
             textSize = 14f
@@ -709,7 +850,7 @@ class MainActivity : ComponentActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
 
-            params.bottomMargin = 10
+            params.bottomMargin = 9
             layoutParams = params
         }
 
@@ -729,20 +870,6 @@ class MainActivity : ComponentActivity() {
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .show()
-    }
-
-    private fun showStartupError(error: Exception) {
-
-        Log.e(TAG, "Fatal startup error", error)
-
-        AlertDialog.Builder(this)
-            .setTitle("MSM Converter startup error")
-            .setMessage(
-                error.localizedMessage
-                    ?: "An unexpected startup error occurred."
-            )
-            .setPositiveButton("Close", null)
             .show()
     }
 }
