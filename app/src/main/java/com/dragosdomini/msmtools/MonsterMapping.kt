@@ -2,538 +2,520 @@
 package com.dragosdomini.msmtools
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import java.util.Locale
+import kotlin.math.abs
 
-/**
- * MSM Monster Mapping
- *
- * Loads the existing mdata.json database.
- * Supports MIDI program/bank matching, ranked suggestions,
- * manual monster selection and database validation.
- *
- * IMPORTANT:
- * The current database does not contain verified pitch ranges.
- * This class does not invent them.
- */
+data class PitchSegment(
+    val minPitch: Int,
+    val maxPitch: Int,
+    val offset: Int
+) {
+    init {
+        require(minPitch in 0..127)
+        require(maxPitch in minPitch..127)
+        require(offset in -48..48)
+    }
+
+    fun contains(pitch: Int): Boolean =
+        pitch in minPitch..maxPitch
+}
+
+data class Monster(
+    val id: String,
+    val name: String,
+    val posX: Int,
+    val posY: Int,
+    val flip: Int,
+    val midiProgram: Int,
+    val midiBankSelectMsb: Int,
+    val pitchSegments: List<PitchSegment> = emptyList()
+) {
+    val hasPitchData: Boolean
+        get() = pitchSegments.isNotEmpty()
+}
+
+enum class CompatibilityStatus {
+    FULL_MATCH,
+    OCTAVE_ADJUSTABLE,
+    PARTIAL_MATCH,
+    INCOMPATIBLE,
+    UNKNOWN
+}
+
+data class PitchAdjustment(
+    val originalPitch: Int,
+    val adjustedPitch: Int,
+    val storedPitch: Int,
+    val offset: Int,
+    val octaveShift: Int
+)
+
+data class MonsterCompatibility(
+    val monster: Monster,
+    val status: CompatibilityStatus,
+    val score: Int,
+    val totalNotes: Int,
+    val compatibleNotes: Int,
+    val incompatibleNotes: Int,
+    val minimumInputPitch: Int,
+    val maximumInputPitch: Int,
+    val octaveShift: Int,
+    val adjustments: List<PitchAdjustment>,
+    val explanation: String
+) {
+    val accommodatesEntireTrack: Boolean
+        get() = totalNotes > 0 &&
+            compatibleNotes == totalNotes &&
+            incompatibleNotes == 0 &&
+            status != CompatibilityStatus.UNKNOWN
+}
 
 object MonsterMapping {
 
-    data class Monster(
-        val id: Int,
-        val name: String,
-        val posX: Int,
-        val posY: Int,
-        val flip: Int,
-        val midiProgram: Int,
-        val midiBank: Int
-    )
+    private val monsters = mutableMapOf<String, Monster>()
 
-    enum class MatchType {
-        EXACT,
-        BANK_FALLBACK,
-        SAME_PROGRAM_OTHER_BANK,
-        NONE
-    }
-
-    data class MonsterSuggestion(
-        val monster: Monster,
-        val matchType: MatchType,
-        val score: Int,
-        val reason: String
-    )
-
-    private val lock = Any()
-
-    @Volatile
-    private var monsters: List<Monster> = emptyList()
-
-    @Volatile
-    private var loaded = false
+    private const val DEFAULT_LEGACY_MIN = 0
+    private const val DEFAULT_LEGACY_MAX = 127
 
     /**
-     * Load mdata.json from Android assets.
+     * Load the monster database from app/src/main/assets/mdata.json.
      */
-    @Throws(IOException::class)
-    fun load(context: Context) {
+    fun load(context: Context): List<Monster> {
+        val json = context.assets.open("mdata.json")
+            .bufferedReader()
+            .use { it.readText() }
 
-        if (loaded) return
+        return loadFromJson(json)
+    }
 
-        synchronized(lock) {
+    /**
+     * Parse and validate the complete monster database.
+     */
+    @Synchronized
+    fun loadFromJson(json: String): List<Monster> {
+        val root = JSONObject(json)
+        val loaded = mutableMapOf<String, Monster>()
 
-            if (loaded) return
+        val keys = root.keys()
 
-            val jsonText = try {
+        while (keys.hasNext()) {
+            val id = keys.next()
+            val item = root.optJSONObject(id) ?: continue
 
-                context.applicationContext.assets
-                    .open("mdata.json")
-                    .bufferedReader()
-                    .use { it.readText() }
+            val name = item.optString("name", "").trim()
 
-            } catch (e: Exception) {
+            if (name.isEmpty()) continue
 
-                throw IOException(
-                    "Unable to load mdata.json: ${e.message}",
-                    e
-                )
-            }
+            val segments = parsePitchSegments(item)
 
-            val json = try {
-
-                JSONObject(jsonText)
-
-            } catch (e: Exception) {
-
-                throw IOException(
-                    "Invalid mdata.json: ${e.message}",
-                    e
-                )
-            }
-
-            val parsed = mutableListOf<Monster>()
-
-            val keys = json.keys()
-
-            while (keys.hasNext()) {
-
-                val key = keys.next()
-
-                val id = key.toIntOrNull() ?: continue
-
-                val entry = json.optJSONObject(key) ?: continue
-
-                val name = entry
-                    .optString("name", "")
-                    .trim()
-
-                if (name.isEmpty()) continue
-
-                val program = entry.optInt(
-                    "midi_program",
-                    -1
-                )
-
-                val bank = entry.optInt(
+            val monster = Monster(
+                id = id,
+                name = name,
+                posX = item.optInt("pos_x", 0),
+                posY = item.optInt("pos_y", 0),
+                flip = item.optInt("flip", 0),
+                midiProgram = item.optInt("midi_program", 0),
+                midiBankSelectMsb = item.optInt(
                     "midi_bank_select_msb",
                     0
+                ),
+                pitchSegments = segments
+            )
+
+            loaded[id] = monster
+        }
+
+        synchronized(monsters) {
+            monsters.clear()
+            monsters.putAll(loaded)
+        }
+
+        return loaded.values.sortedBy { it.name }
+    }
+
+    /**
+     * Parse pitch_segments.
+     *
+     * Format:
+     * [
+     *   [minimum sounding MIDI pitch,
+     *    maximum sounding MIDI pitch,
+     *    storage offset]
+     * ]
+     */
+    private fun parsePitchSegments(
+        item: JSONObject
+    ): List<PitchSegment> {
+
+        if (!item.has("pitch_segments")) {
+            return emptyList()
+        }
+
+        val array = item.optJSONArray("pitch_segments")
+            ?: throw IllegalArgumentException(
+                "pitch_segments must be an array"
+            )
+
+        val result = mutableListOf<PitchSegment>()
+
+        for (i in 0 until array.length()) {
+            val segment = array.optJSONArray(i)
+                ?: throw IllegalArgumentException(
+                    "Invalid pitch segment at index $i"
                 )
 
-                if (program !in -1..127) continue
-                if (bank !in 0..127) continue
+            if (segment.length() != 3) {
+                throw IllegalArgumentException(
+                    "Pitch segment must contain exactly 3 values"
+                )
+            }
 
-                parsed.add(
-                    Monster(
-                        id = id,
-                        name = name,
-                        posX = entry.optInt("pos_x", 0),
-                        posY = entry.optInt("pos_y", 0),
-                        flip = entry.optInt("flip", 0),
-                        midiProgram = program,
-                        midiBank = bank
+            val min = segment.optInt(0, -1)
+            val max = segment.optInt(1, -1)
+            val offset = segment.optInt(2, Int.MIN_VALUE)
+
+            result.add(
+                PitchSegment(
+                    minPitch = min,
+                    maxPitch = max,
+                    offset = offset
+                )
+            )
+        }
+
+        if (result.isEmpty()) {
+            throw IllegalArgumentException(
+                "Pitch segment list cannot be empty"
+            )
+        }
+
+        return result.sortedBy { it.minPitch }
+    }
+
+    fun getAllMonsters(): List<Monster> =
+        synchronized(monsters) {
+            monsters.values.sortedBy { it.name }
+        }
+
+    fun getMonster(id: String): Monster? =
+        synchronized(monsters) {
+            monsters[id]
+        }
+
+    fun getMonsterByName(name: String): Monster? =
+        synchronized(monsters) {
+            monsters.values.firstOrNull {
+                it.name.equals(name, ignoreCase = true)
+            }
+        }
+
+    /**
+     * Find the best matching pitch segment for one MIDI note.
+     *
+     * The pitch segment describes the sounding range.
+     * offset converts sounding pitch into stored MSM pitch.
+     */
+    fun findSegment(
+        monster: Monster,
+        soundingPitch: Int
+    ): PitchSegment? {
+        return monster.pitchSegments.firstOrNull {
+            it.contains(soundingPitch)
+        }
+    }
+
+    /**
+     * Convert sounding pitch into the monster's stored pitch.
+     */
+    fun soundingToStoredPitch(
+        monster: Monster,
+        soundingPitch: Int
+    ): Int? {
+
+        val segment = findSegment(monster, soundingPitch)
+            ?: return null
+
+        val stored = soundingPitch + segment.offset
+
+        return stored.takeIf { it in 0..127 }
+    }
+
+    /**
+     * Check a complete track against one monster.
+     *
+     * All notes are checked, not just minimum and maximum.
+     *
+     * Octave adjustments are tested consistently across
+     * the entire track.
+     */
+    fun analyzeCompatibility(
+        monster: Monster,
+        pitches: List<Int>
+    ): MonsterCompatibility {
+
+        if (pitches.isEmpty()) {
+            return MonsterCompatibility(
+                monster = monster,
+                status = CompatibilityStatus.UNKNOWN,
+                score = 0,
+                totalNotes = 0,
+                compatibleNotes = 0,
+                incompatibleNotes = 0,
+                minimumInputPitch = 0,
+                maximumInputPitch = 0,
+                octaveShift = 0,
+                adjustments = emptyList(),
+                explanation = "No MIDI notes were found."
+            )
+        }
+
+        require(pitches.all { it in 0..127 }) {
+            "MIDI pitches must be between 0 and 127."
+        }
+
+        if (!monster.hasPitchData) {
+            return MonsterCompatibility(
+                monster = monster,
+                status = CompatibilityStatus.UNKNOWN,
+                score = 0,
+                totalNotes = pitches.size,
+                compatibleNotes = 0,
+                incompatibleNotes = pitches.size,
+                minimumInputPitch = pitches.minOrNull() ?: 0,
+                maximumInputPitch = pitches.maxOrNull() ?: 0,
+                octaveShift = 0,
+                adjustments = emptyList(),
+                explanation = "Pitch data is unavailable for this monster."
+            )
+        }
+
+        val shifts = listOf(
+            0, -12, 12, -24, 24, -36, 36,
+            -48, 48
+        )
+
+        val evaluations = shifts.map { shift ->
+            evaluateShift(monster, pitches, shift)
+        }
+
+        val best = evaluations.maxWithOrNull(
+            compareBy<MonsterCompatibility> {
+                it.compatibleNotes
+            }.thenBy {
+                it.score
+            }.thenBy {
+                -abs(it.octaveShift)
+            }
+        )!!
+
+        return best
+    }
+
+    private fun evaluateShift(
+        monster: Monster,
+        pitches: List<Int>,
+        shift: Int
+    ): MonsterCompatibility {
+
+        val adjustments = mutableListOf<PitchAdjustment>()
+        var compatible = 0
+
+        pitches.forEach { original ->
+
+            val adjusted = original + shift
+
+            val segment = if (adjusted in 0..127) {
+                findSegment(monster, adjusted)
+            } else {
+                null
+            }
+
+            if (segment != null) {
+                val stored = adjusted + segment.offset
+
+                if (stored in 0..127) {
+                    compatible++
+
+                    adjustments.add(
+                        PitchAdjustment(
+                            originalPitch = original,
+                            adjustedPitch = adjusted,
+                            storedPitch = stored,
+                            offset = segment.offset,
+                            octaveShift = shift
+                        )
+                    )
+                }
+            }
+        }
+
+        val total = pitches.size
+        val incompatible = total - compatible
+
+        val score = if (total == 0) {
+            0
+        } else {
+            ((compatible.toDouble() / total) * 100)
+                .toInt()
+        }
+
+        val status = when {
+            compatible == total && shift == 0 ->
+                CompatibilityStatus.FULL_MATCH
+
+            compatible == total ->
+                CompatibilityStatus.OCTAVE_ADJUSTABLE
+
+            compatible > 0 ->
+                CompatibilityStatus.PARTIAL_MATCH
+
+            else ->
+                CompatibilityStatus.INCOMPATIBLE
+        }
+
+        val explanation = when (status) {
+            CompatibilityStatus.FULL_MATCH ->
+                "All notes fit the monster's pitch segments."
+
+            CompatibilityStatus.OCTAVE_ADJUSTABLE ->
+                "All notes fit after a ${shift}-semitone octave adjustment."
+
+            CompatibilityStatus.PARTIAL_MATCH ->
+                "$compatible of $total notes fit. $incompatible notes remain outside the range."
+
+            CompatibilityStatus.INCOMPATIBLE ->
+                "No notes fit this monster's available pitch segments."
+
+            CompatibilityStatus.UNKNOWN ->
+                "Pitch compatibility is unknown."
+        }
+
+        return MonsterCompatibility(
+            monster = monster,
+            status = status,
+            score = score,
+            totalNotes = total,
+            compatibleNotes = compatible,
+            incompatibleNotes = incompatible,
+            minimumInputPitch = pitches.minOrNull() ?: 0,
+            maximumInputPitch = pitches.maxOrNull() ?: 0,
+            octaveShift = shift,
+            adjustments = adjustments,
+            explanation = explanation
+        )
+    }
+
+    /**
+     * Automatically rank all monsters against a complete track.
+     *
+     * This function never changes a monster assignment.
+     */
+    fun rankAlternatives(
+        pitches: List<Int>,
+        excludeMonsterId: String? = null
+    ): List<MonsterCompatibility> {
+
+        return getAllMonsters()
+            .filter { it.id != excludeMonsterId }
+            .filter { it.hasPitchData }
+            .map {
+                analyzeCompatibility(it, pitches)
+            }
+            .sortedWith(
+                compareByDescending<MonsterCompatibility> {
+                    it.accommodatesEntireTrack
+                }.thenByDescending {
+                    it.compatibleNotes
+                }.thenByDescending {
+                    it.score
+                }.thenBy {
+                    abs(it.octaveShift)
+                }.thenBy {
+                    it.monster.name
+                }
+            )
+    }
+
+    /**
+     * Convenience function for the currently selected monster.
+     */
+    fun analyzeSelectedMonster(
+        monsterId: String,
+        pitches: List<Int>
+    ): MonsterCompatibility? {
+
+        val monster = getMonster(monsterId)
+            ?: return null
+
+        return analyzeCompatibility(monster, pitches)
+    }
+
+    /**
+     * Return the nearest available sounding pitch.
+     *
+     * Used when a note is outside all pitch segments.
+     * This is a nearest-pitch fallback, not an octave-wide
+     * reassignment of the entire track.
+     */
+    fun nearestPlayablePitch(
+        monster: Monster,
+        requestedPitch: Int
+    ): PitchAdjustment? {
+
+        if (!monster.hasPitchData) return null
+
+        val candidates = mutableListOf<PitchAdjustment>()
+
+        monster.pitchSegments.forEach { segment ->
+
+            val nearest = requestedPitch.coerceIn(
+                segment.minPitch,
+                segment.maxPitch
+            )
+
+            val stored = nearest + segment.offset
+
+            if (stored in 0..127) {
+                candidates.add(
+                    PitchAdjustment(
+                        originalPitch = requestedPitch,
+                        adjustedPitch = nearest,
+                        storedPitch = stored,
+                        offset = segment.offset,
+                        octaveShift = nearest - requestedPitch
                     )
                 )
             }
+        }
 
-            if (parsed.isEmpty()) {
-
-                throw IOException(
-                    "No valid monsters found in mdata.json."
-                )
-            }
-
-            val duplicateIds = parsed
-                .groupBy { it.id }
-                .filterValues { it.size > 1 }
-                .keys
-
-            if (duplicateIds.isNotEmpty()) {
-
-                throw IOException(
-                    "Duplicate monster IDs: ${duplicateIds.joinToString()}"
-                )
-            }
-
-            monsters = parsed.sortedBy { it.id }
-
-            loaded = true
+        return candidates.minByOrNull {
+            abs(it.adjustedPitch - requestedPitch)
         }
     }
 
     /**
-     * Normalize MIDI bank representation.
+     * Explicit assignment validation.
      *
-     * Accepts either an MSB value (0-127)
-     * or a combined MIDI bank value (0-16383).
+     * This only checks the proposed assignment.
+     * The caller must request user approval before committing it.
      */
-    private fun normalizeBank(bank: Int): Int? {
-
-        if (bank !in 0..16383) return null
-
-        return if (bank > 127) {
-            bank ushr 7
-        } else {
-            bank
-        }
-    }
-
-    /**
-     * Retrieve all monsters.
-     */
-    fun getAllMonsters(
-        context: Context
-    ): List<Monster> {
-
-        load(context)
-
-        return monsters.toList()
-    }
-
-    /**
-     * Retrieve monster count.
-     */
-    fun getMonsterCount(
-        context: Context
-    ): Int {
-
-        load(context)
-
-        return monsters.size
-    }
-
-    /**
-     * Find monster by ID.
-     */
-    fun findMonsterById(
-        context: Context,
-        monsterId: Int
-    ): Monster? {
-
-        load(context)
-
-        return monsters.firstOrNull {
-            it.id == monsterId
-        }
-    }
-
-    /**
-     * Find monster by name.
-     */
-    fun findMonsterByName(
-        context: Context,
-        name: String
-    ): Monster? {
-
-        load(context)
-
-        if (name.isBlank()) return null
-
-        return monsters.firstOrNull {
-            it.name.equals(
-                name.trim(),
-                ignoreCase = true
-            )
-        }
-    }
-
-    /**
-     * Search monster names.
-     */
-    fun searchMonsters(
-        context: Context,
-        query: String
-    ): List<Monster> {
-
-        load(context)
-
-        if (query.isBlank()) return emptyList()
-
-        return monsters.filter {
-            it.name.contains(
-                query.trim(),
-                ignoreCase = true
-            )
-        }
-    }
-
-    /**
-     * Check whether a monster ID exists.
-     */
-    fun isValidMonster(
-        context: Context,
-        monsterId: Int
+    fun canApproveAssignment(
+        monsterId: String,
+        pitches: List<Int>
     ): Boolean {
 
-        return findMonsterById(
-            context,
-            monsterId
-        ) != null
+        val compatibility = analyzeSelectedMonster(
+            monsterId,
+            pitches
+        ) ?: return false
+
+        return compatibility.accommodatesEntireTrack
     }
 
-    /**
-     * Determine MIDI mapping compatibility.
-     */
-    fun getMatchType(
-        context: Context,
-        program: Int,
-        bank: Int,
-        monster: Monster
-    ): MatchType {
-
-        load(context)
-
-        if (program !in 0..127) {
-            return MatchType.NONE
-        }
-
-        val normalizedBank = normalizeBank(bank)
-            ?: return MatchType.NONE
-
-        if (monster.midiProgram != program) {
-            return MatchType.NONE
-        }
-
-        return when {
-
-            monster.midiBank == normalizedBank ->
-                MatchType.EXACT
-
-            monster.midiBank == 0 ->
-                MatchType.BANK_FALLBACK
-
-            else ->
-                MatchType.NONE
-        }
-    }
-
-    /**
-     * Generate ranked monster suggestions.
-     *
-     * Exact matches are preferred.
-     * Bank-zero fallback matches are secondary.
-     * Other-bank matches are manual alternatives only.
-     */
-    fun getDetailedSuggestions(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): List<MonsterSuggestion> {
-
-        load(context)
-
-        if (program !in 0..127) {
-            return emptyList()
-        }
-
-        val normalizedBank = normalizeBank(bank)
-            ?: return emptyList()
-
-        val sameProgram = monsters.filter {
-            it.midiProgram == program
-        }
-
-        if (sameProgram.isEmpty()) {
-            return emptyList()
-        }
-
-        val exact = sameProgram.filter {
-            it.midiBank == normalizedBank
-        }
-
-        val fallback = sameProgram.filter {
-            normalizedBank != 0 &&
-                it.midiBank == 0
-        }
-
-        val otherBanks = sameProgram.filter {
-            it.midiBank != normalizedBank &&
-                it.midiBank != 0
-        }
-
-        val suggestions = mutableListOf<MonsterSuggestion>()
-
-        exact.forEach {
-
-            suggestions.add(
-                MonsterSuggestion(
-                    monster = it,
-                    matchType = MatchType.EXACT,
-                    score = 100,
-                    reason = "Exact MIDI program and bank match."
-                )
-            )
-        }
-
-        fallback.forEach {
-
-            suggestions.add(
-                MonsterSuggestion(
-                    monster = it,
-                    matchType = MatchType.BANK_FALLBACK,
-                    score = 75,
-                    reason = "MIDI program matches. Database bank is 0."
-                )
-            )
-        }
-
-        otherBanks.forEach {
-
-            suggestions.add(
-                MonsterSuggestion(
-                    monster = it,
-                    matchType = MatchType.SAME_PROGRAM_OTHER_BANK,
-                    score = 40,
-                    reason = "MIDI program matches, but bank differs. Manual review recommended."
-                )
-            )
-        }
-
-        return suggestions.sortedWith(
-            compareByDescending<MonsterSuggestion> {
-                it.score
-            }.thenBy {
-                it.monster.name.lowercase(Locale.ROOT)
-            }.thenBy {
-                it.monster.id
-            }
-        )
-    }
-
-    /**
-     * Backward-compatible suggestion method.
-     *
-     * Does not return unrelated monsters.
-     * Does not default to Tweedle.
-     */
-    fun findMonsterSuggestions(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): List<Monster> {
-
-        return getDetailedSuggestions(
-            context,
-            program,
-            bank
-        )
-            .filter {
-                it.matchType == MatchType.EXACT ||
-                    it.matchType == MatchType.BANK_FALLBACK
-            }
-            .map {
-                it.monster
-            }
-    }
-
-    /**
-     * Find the best available instrument mapping.
-     */
-    fun findBestMonster(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): Monster? {
-
-        return findMonsterSuggestions(
-            context,
-            program,
-            bank
-        ).firstOrNull()
-    }
-
-    /**
-     * Legacy method compatibility.
-     */
-    fun findMonster(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): Monster? {
-
-        return findBestMonster(
-            context,
-            program,
-            bank
-        )
-    }
-
-    /**
-     * Require a valid mapping.
-     *
-     * Throws an informative exception instead
-     * of silently selecting an unrelated monster.
-     */
-    @Throws(IOException::class)
-    fun requireMonster(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): Monster {
-
-        return findBestMonster(
-            context,
-            program,
-            bank
-        ) ?: throw IOException(
-
-            if (program == -1) {
-
-                "No MIDI instrument program was detected. Please select a monster manually."
-
-            } else {
-
-                "No monster mapping found for MIDI program $program, bank $bank. Please select a monster manually."
-            }
-        )
-    }
-
-    /**
-     * Return every monster for manual selection.
-     */
-    fun getManualSelectionOptions(
-        context: Context
-    ): List<Monster> {
-
-        load(context)
-
-        return monsters.sortedBy {
-            it.name.lowercase(Locale.ROOT)
-        }
-    }
-
-    /**
-     * Legacy aliases.
-     */
-    fun getMonsterOptions(
-        context: Context
-    ): List<Monster> {
-
-        return getManualSelectionOptions(context)
-    }
-
-    fun getMonsterSuggestions(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): List<Monster> {
-
-        return findMonsterSuggestions(
-            context,
-            program,
-            bank
-        )
-    }
-
-    /**
-     * Clear cached database.
-     */
-    fun clearCache() {
-
-        synchronized(lock) {
-
-            monsters = emptyList()
-
-            loaded = false
+    fun clear() {
+        synchronized(monsters) {
+            monsters.clear()
         }
     }
 }
