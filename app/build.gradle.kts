@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.dragosdomini.msmtools"
+    namespace = "com.cyndyrfyrestudios.msmtools"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dragosdomini.msmtools"
+        applicationId = "com.cyndyrfyrestudios.msmtools"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
