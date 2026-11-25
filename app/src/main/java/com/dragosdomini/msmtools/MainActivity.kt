@@ -1,400 +1,1508 @@
+
 package com.dragosdomini.msmtools
 
-import android.animation.ValueAnimator
 import android.app.AlertDialog
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import android.view.ViewGroup
+import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import java.io.IOException
+import java.util.Locale
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
-    private var selectedMidi: Uri? = null
-    private var selectedName: String? = null
-    private var convertedMsm: ByteArray? = null
-    private var currentMidi: ParsedMidi? = null
+    // --------------------------------------------------
+    // STATE
+    // --------------------------------------------------
 
-    private var selectedNoteDivision = 8
+    private var selectedMidi: Uri? = null
+    private var selectedName = "No MIDI selected"
+
+    private var currentMidi: ParsedMidi? = null
+    private var convertedMsm: ByteArray? = null
+
+    private var selectedTempo = 120
     private var selectedNumerator = 4
     private var selectedDenominator = 4
+    private var selectedNoteDivision = 8
 
     private val monsterAssignments = mutableMapOf<Int, Int>()
-    private val skippedParts = mutableSetOf<Int>()
+
     private var currentPartIndex = 0
-    private var allMonsters: List<MonsterMapping.Monster> = emptyList()
+
+    private var allMonsters: List<MonsterMapping.Monster> =
+        emptyList()
+
+    private var suggestions =
+        emptyList<MonsterMapping.MonsterSuggestion>()
+
+    private var selectedMonsterId: Int? = null
+
+    private var busy = false
+
+    // --------------------------------------------------
+    // COLORS
+    // --------------------------------------------------
+
+    private val colors = object {
+
+        val background = Color.rgb(35, 23, 47)
+        val panel = Color.rgb(74, 49, 91)
+        val panelLight = Color.rgb(92, 64, 108)
+
+        val gold = Color.rgb(238, 185, 85)
+        val cream = Color.rgb(255, 238, 204)
+
+        val muted = Color.rgb(194, 176, 205)
+        val green = Color.rgb(119, 204, 137)
+        val red = Color.rgb(255, 135, 120)
+    }
+
+    // --------------------------------------------------
+    // VIEWS
+    // --------------------------------------------------
 
     private lateinit var root: LinearLayout
-    private lateinit var statusText: TextView
-    private lateinit var fileText: TextView
+    private lateinit var content: LinearLayout
+
+    private lateinit var fileNameView: TextView
+    private lateinit var bpmView: TextView
+    private lateinit var timeSignatureView: TextView
+    private lateinit var statusView: TextView
+
+    private lateinit var numeratorSpinner: Spinner
+    private lateinit var denominatorSpinner: Spinner
+
+    private lateinit var tempoInput: EditText
+
     private lateinit var convertButton: Button
-    private lateinit var numeratorText: TextView
-    private lateinit var denominatorText: TextView
-    private lateinit var divisionText: TextView
 
-    private var loadingAnimator: ValueAnimator? = null
-    private val cream = Color.rgb(255, 238, 204)
-    private val gold = Color.rgb(238, 185, 85)
-    private val dark = Color.rgb(35, 23, 47)
-    private val panel = Color.rgb(74, 49, 91)
+    private lateinit var trackStatusView: TextView
 
-    private val openMidi = registerForActivityResult(
+    // --------------------------------------------------
+    // FILE PICKER
+    // --------------------------------------------------
+
+    private val midiPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
+
         if (uri != null) {
+
             selectedMidi = uri
-            selectedName = queryName(uri)
-            fileText.text = selectedName ?: "MIDI selected"
-            status("MIDI file ready. Choose your composition settings.")
-            convertButton.isEnabled = true
+
+            selectedName = getFileName(uri)
+                ?: "Selected MIDI"
+
+            fileNameView.text = selectedName
+
+            readMidi(uri)
         }
     }
 
-    private val saveMsm = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
+    private val msmSaver = registerForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/octet-stream"
+        )
     ) { uri ->
-        if (uri != null) saveConvertedFile(uri)
+
+        if (uri != null) {
+            saveMsm(uri)
+        }
     }
 
+    // --------------------------------------------------
+    // LIFECYCLE
+    // --------------------------------------------------
+
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
-        window.statusBarColor = dark
-        window.navigationBarColor = dark
-        selectedNumerator = savedInstanceState?.getInt("timeNumerator") ?: 4
-        selectedDenominator = savedInstanceState?.getInt("timeDenominator") ?: 4
-        selectedNoteDivision = savedInstanceState?.getInt("noteDivision") ?: 8
+
+        window.statusBarColor = colors.background
+        window.navigationBarColor = colors.background
+
+        selectedNumerator =
+            savedInstanceState?.getInt("numerator") ?: 4
+
+        selectedDenominator =
+            savedInstanceState?.getInt("denominator") ?: 4
+
+        selectedNoteDivision =
+            savedInstanceState?.getInt("division") ?: 8
+
+        selectedTempo =
+            savedInstanceState?.getInt("tempo") ?: 120
+
         buildInterface()
+
+        loadMonsterDatabase()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putInt("timeNumerator", selectedNumerator)
-        outState.putInt("timeDenominator", selectedDenominator)
-        outState.putInt("noteDivision", selectedNoteDivision)
+
+        outState.putInt("numerator", selectedNumerator)
+        outState.putInt("denominator", selectedDenominator)
+        outState.putInt("division", selectedNoteDivision)
+        outState.putInt("tempo", selectedTempo)
+
         super.onSaveInstanceState(outState)
     }
 
+    // --------------------------------------------------
+    // MAIN INTERFACE
+    // --------------------------------------------------
+
     private fun buildInterface() {
+
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(dark)
+            setBackgroundColor(colors.background)
             isFillViewport = true
         }
+
         root = LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(18), dp(22), dp(18), dp(28))
+
+            setPadding(
+                dp(18),
+                dp(22),
+                dp(18),
+                dp(30)
+            )
         }
+
+        content = root
+
         scroll.addView(root)
+
         setContentView(scroll)
 
-        val title = text("MSM MIDI CONVERTER", 27f, gold, true)
-        title.gravity = Gravity.CENTER
-        root.addView(title, matchWrap())
-        val subtitle = text("Turn MIDI arrangements into Composer songs", 14f, cream, false)
-        subtitle.gravity = Gravity.CENTER
-        subtitle.setPadding(0, dp(5), 0, dp(20))
+        // HEADER
+
+        val header = TextView(this).apply {
+
+            text = "MSM MIDI CONVERTER"
+
+            textSize = 27f
+
+            gravity = Gravity.CENTER
+
+            setTextColor(colors.gold)
+
+            typeface = Typeface.create(
+                "sans-serif-rounded",
+                Typeface.BOLD
+            )
+        }
+
+        root.addView(header, matchWrap())
+
+        val subtitle = TextView(this).apply {
+
+            text = "Compose your music. Monster by monster."
+
+            textSize = 14f
+
+            gravity = Gravity.CENTER
+
+            setTextColor(colors.cream)
+
+            setPadding(0, dp(7), 0, dp(22))
+        }
+
         root.addView(subtitle, matchWrap())
 
+        // FILE PANEL
+
         val filePanel = section("SONG FILE")
-        fileText = text("No MIDI file selected", 15f, cream, false)
-        fileText.setPadding(0, dp(8), 0, dp(12))
-        filePanel.addView(fileText)
-        filePanel.addView(actionButton("SELECT MIDI FILE") {
-            openMidi.launch(arrayOf("audio/midi", "audio/x-midi", "application/octet-stream"))
-        })
+
+        fileNameView = text(
+            "No MIDI selected",
+            15f,
+            colors.cream,
+            false
+        )
+
+        fileNameView.setPadding(
+            0,
+            dp(10),
+            0,
+            dp(12)
+        )
+
+        filePanel.addView(fileNameView)
+
+        filePanel.addView(
+            button("SELECT MIDI FILE") {
+
+                midiPicker.launch(
+                    arrayOf(
+                        "audio/midi",
+                        "audio/x-midi",
+                        "application/octet-stream"
+                    )
+                )
+            }
+        )
+
         root.addView(filePanel, matchWrap())
 
-        val settings = section("COMPOSITION SETTINGS")
-        settings.addView(text("Time signature", 16f, gold, true))
-        val timeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        // SONG INFORMATION
+
+        val songPanel = section("SONG INFORMATION")
+
+        bpmView = text(
+            "BPM: Awaiting MIDI",
+            16f,
+            colors.gold,
+            true
+        )
+
+        songPanel.addView(bpmView)
+
+        tempoInput = EditText(this).apply {
+
+            setTextColor(colors.cream)
+
+            setHintTextColor(colors.muted)
+
+            hint = "Enter BPM"
+
+            inputType =
+                android.text.InputType.TYPE_CLASS_NUMBER
+
+            setText(selectedTempo.toString())
+
+            background = rounded(
+                colors.panelLight,
+                colors.gold,
+                1,
+                10
+            )
+
+            setPadding(
+                dp(12),
+                dp(8),
+                dp(12),
+                dp(8)
+            )
         }
-        numeratorText = text("", 20f, cream, true)
-        denominatorText = text("", 20f, cream, true)
-        val numeratorControls = selectorColumn(
-            "TOP NUMBER", (1..12).map(Int::toString), selectedNumerator.toString()
-        ) { selectedNumerator = it.toInt(); updateSelectors() }
-        val denominatorControls = selectorColumn(
-            "BOTTOM NUMBER", listOf("2", "4", "8"), selectedDenominator.toString()
-        ) { selectedDenominator = it.toInt(); updateSelectors() }
-        timeRow.addView(numeratorControls, LinearLayout.LayoutParams(0, dp(150), 1f))
-        timeRow.addView(denominatorControls, LinearLayout.LayoutParams(0, dp(150), 1f))
+
+        songPanel.addView(
+            tempoInput,
+            matchWrap()
+        )
+
+        root.addView(songPanel, matchWrap())
+
+        // COMPOSITION SETTINGS
+
+        val settings = section("COMPOSITION SETTINGS")
+
+        settings.addView(
+            text(
+                "TIME SIGNATURE",
+                14f,
+                colors.gold,
+                true
+            )
+        )
+
+        val timeRow = LinearLayout(this).apply {
+
+            orientation = LinearLayout.HORIZONTAL
+
+            gravity = Gravity.CENTER
+
+        }
+
+        numeratorSpinner = createSpinner(
+            (1..12).map { it.toString() },
+            selectedNumerator.toString()
+        ) {
+
+            selectedNumerator = it.toInt()
+            updateTimeSignature()
+        }
+
+        denominatorSpinner = createSpinner(
+            listOf("2", "4", "8"),
+            selectedDenominator.toString()
+        ) {
+
+            selectedDenominator = it.toInt()
+            updateTimeSignature()
+        }
+
+        timeRow.addView(
+            spinnerColumn("UPPER NUMERAL", numeratorSpinner),
+            weightParams()
+        )
+
+        timeRow.addView(
+            spinnerColumn("LOWER NUMERAL", denominatorSpinner),
+            weightParams()
+        )
+
         settings.addView(timeRow)
 
-        settings.addView(text("Smallest note division", 16f, gold, true).apply {
-            setPadding(0, dp(12), 0, dp(5))
-        })
-        divisionText = text("", 16f, cream, true)
-        val divisions = LinearLayout(this).apply {
+        timeSignatureView = text(
+            "4 / 4",
+            24f,
+            colors.gold,
+            true
+        )
+
+        timeSignatureView.gravity = Gravity.CENTER
+
+        settings.addView(timeSignatureView)
+
+        // NOTE DIVISION
+
+        settings.addView(
+            text(
+                "SMALLEST NOTE DIVISION",
+                14f,
+                colors.gold,
+                true
+            ).apply {
+                setPadding(0, dp(15), 0, dp(8))
+            }
+        )
+
+        val divisionRow = LinearLayout(this).apply {
+
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
         }
+
         listOf(8, 16, 32).forEach { value ->
-            divisions.addView(actionButton("1/$value") {
-                selectedNoteDivision = value
-                updateSelectors()
-            }, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-                setMargins(dp(3), dp(3), dp(3), dp(3))
-            })
+
+            divisionRow.addView(
+                button("1/$value") {
+
+                    selectedNoteDivision = value
+
+                    updateDivisionButtons()
+                },
+                weightParams()
+            )
         }
-        settings.addView(divisions)
-        settings.addView(divisionText)
+
+        settings.addView(divisionRow)
+
         root.addView(settings, matchWrap())
 
-        convertButton = actionButton("CONVERT MIDI TO MSM") { convertMidi() }
+        // TRACK INFORMATION
+
+        val tracksPanel = section("MONSTER ASSIGNMENTS")
+
+        trackStatusView = text(
+            "No MIDI tracks loaded.",
+            14f,
+            colors.cream,
+            false
+        )
+
+        tracksPanel.addView(trackStatusView)
+
+        root.addView(tracksPanel, matchWrap())
+
+        // CONVERSION BUTTON
+
+        convertButton = button(
+            "ANALYZE COMPOSITION"
+        ) {
+
+            if (currentMidi == null) {
+
+                showStatus("Select a MIDI file first.", true)
+
+            } else {
+
+                beginAssignments()
+            }
+        }
+
         convertButton.isEnabled = false
-        root.addView(convertButton, matchWrap())
 
-        statusText = text("Select a MIDI file to begin.", 14f, cream, false)
-        statusText.gravity = Gravity.CENTER
-        statusText.setPadding(dp(8), dp(16), dp(8), dp(10))
-        root.addView(statusText, matchWrap())
-        updateSelectors()
+        root.addView(
+            convertButton,
+            matchWrap()
+        )
+
+        // STATUS
+
+        statusView = text(
+            "Welcome! Select a MIDI file to begin.",
+            14f,
+            colors.cream,
+            false
+        )
+
+        statusView.gravity = Gravity.CENTER
+
+        statusView.setPadding(
+            dp(8),
+            dp(17),
+            dp(8),
+            dp(10)
+        )
+
+        root.addView(statusView, matchWrap())
+
+        updateTimeSignature()
+        updateDivisionButtons()
     }
 
-    private fun selectorColumn(
-        heading: String,
-        values: List<String>,
-        selected: String,
-        onSelect: (String) -> Unit
-    ): LinearLayout {
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-        }
-        column.addView(text(heading, 11f, gold, true))
-        column.addView(text(selected, 25f, cream, true))
-        val choices = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        values.forEach { value ->
-            choices.addView(actionButton(value) { onSelect(value) },
-                LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                    setMargins(dp(2), dp(5), dp(2), 0)
-                })
-        }
-        column.addView(choices)
-        return column
-    }
+    // --------------------------------------------------
+    // LOAD DATABASE
+    // --------------------------------------------------
 
-    private fun updateSelectors() {
-        numeratorText.text = selectedNumerator.toString()
-        denominatorText.text = selectedDenominator.toString()
-        divisionText.text = "Selected: 1/$selectedNoteDivision"
-        // Rebuild selector labels so the active value is always visible.
-        numeratorText.text = "$selectedNumerator / $selectedDenominator"
-    }
+    private fun loadMonsterDatabase() {
 
-    private fun convertMidi() {
-        val uri = selectedMidi ?: return
-        convertButton.isEnabled = false
-        status("Reading MIDI…")
-        Thread {
+        thread {
+
             try {
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw IOException("Could not read the selected MIDI file.")
-                val parsed = MidiReader.read(bytes)
-                if (parsed.tracks.isEmpty()) throw IOException("No note tracks were found.")
-                val configuredMidi = parsed.copy(
-                    timeNumerator = selectedNumerator,
-                    timeDenominator = selectedDenominator
-                )
-                val monsters = MonsterMapping.getAllMonsters(this)
+
+                val monsters =
+                    MonsterMapping.getAllMonsters(this)
+
                 runOnUiThread {
-                    currentMidi = configuredMidi
+
                     allMonsters = monsters
-                    monsterAssignments.clear()
-                    skippedParts.clear()
-                    currentPartIndex = 0
-                    showMonsterSelection()
+
+                    showStatus(
+                        "${monsters.size} monsters loaded."
+                    )
                 }
+
             } catch (e: Exception) {
+
                 runOnUiThread {
-                    status("Could not read MIDI:\n${e.message}", true)
-                    convertButton.isEnabled = true
+
+                    showStatus(
+                        "Monster database error: ${e.message}",
+                        true
+                    )
                 }
             }
-        }.start()
+        }
     }
 
-    private fun showMonsterSelection() {
+    // --------------------------------------------------
+    // READ MIDI
+    // --------------------------------------------------
+
+    private fun readMidi(uri: Uri) {
+
+        showStatus("Reading MIDI composition...")
+
+        convertButton.isEnabled = false
+
+        thread {
+
+            try {
+
+                val bytes = contentResolver
+                    .openInputStream(uri)
+                    ?.use { it.readBytes() }
+                    ?: throw IOException(
+                        "Unable to open MIDI file."
+                    )
+
+                val parsed = MidiReader.read(bytes)
+
+                if (parsed.tracks.isEmpty()) {
+
+                    throw IOException(
+                        "No musical tracks were found."
+                    )
+                }
+
+                runOnUiThread {
+
+                    currentMidi = parsed
+
+                    selectedTempo = parsed.tempo
+
+                    selectedNumerator =
+                        parsed.timeNumerator
+
+                    selectedDenominator =
+                        parsed.timeDenominator
+
+                    tempoInput.setText(
+                        selectedTempo.toString()
+                    )
+
+                    selectSpinnerValue(
+                        numeratorSpinner,
+                        selectedNumerator.toString()
+                    )
+
+                    selectSpinnerValue(
+                        denominatorSpinner,
+                        selectedDenominator.toString()
+                    )
+
+                    updateTimeSignature()
+
+                    bpmView.text =
+                        "DETECTED BPM: ${parsed.tempo}"
+
+                    fileNameView.text = selectedName
+
+                    val totalNotes =
+                        parsed.tracks.sumOf { it.notes.size }
+
+                    trackStatusView.text =
+                        "${parsed.tracks.size} musical parts detected\n" +
+                        "$totalNotes individual notes found\n\n" +
+                        "Every part will be checked separately."
+
+                    monsterAssignments.clear()
+
+                    currentPartIndex = 0
+
+                    convertButton.isEnabled = true
+
+                    showStatus(
+                        "MIDI successfully analyzed. Review your composition."
+                    )
+                }
+
+            } catch (e: Exception) {
+
+                runOnUiThread {
+
+                    showStatus(
+                        "MIDI reading failed:\n${e.message}",
+                        true
+                    )
+
+                    convertButton.isEnabled = false
+                }
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    // BEGIN ASSIGNMENTS
+    // --------------------------------------------------
+
+    private fun beginAssignments() {
+
         val midi = currentMidi ?: return
-        while (currentPartIndex < midi.tracks.size &&
-            currentPartIndex in skippedParts
-        ) currentPartIndex++
+
+        if (busy) return
+
+        val bpm = tempoInput.text
+            .toString()
+            .toIntOrNull()
+
+        if (bpm == null || bpm !in 1..1000) {
+
+            showStatus("Enter a valid BPM.", true)
+
+            return
+        }
+
+        selectedTempo = bpm
+
+        monsterAssignments.clear()
+
+        currentPartIndex = 0
+
+        showNextPart()
+    }
+
+    // --------------------------------------------------
+    // NEXT TRACK
+    // --------------------------------------------------
+
+    private fun showNextPart() {
+
+        val midi = currentMidi ?: return
+
+        while (
+            currentPartIndex < midi.tracks.size &&
+            midi.tracks[currentPartIndex].notes.isEmpty()
+        ) {
+            currentPartIndex++
+        }
 
         if (currentPartIndex >= midi.tracks.size) {
+
             showCompositionReview()
+
             return
         }
 
         val track = midi.tracks[currentPartIndex]
-        val suggestions = MonsterMapping.findMonsterSuggestions(
-            this, track.program, track.bank
-        )
-        val best = suggestions.firstOrNull()
-        val assignedId = monsterAssignments[currentPartIndex]
-        val chosen = assignedId?.let { id -> allMonsters.firstOrNull { it.id == id } } ?: best
+
+        suggestions =
+            MonsterMapping.getDetailedSuggestions(
+                this,
+                track.program,
+                track.bank
+            )
+
+        selectedMonsterId =
+            monsterAssignments[currentPartIndex]
+                ?: suggestions.firstOrNull {
+                    it.matchType == MonsterMapping.MatchType.EXACT ||
+                        it.matchType == MonsterMapping.MatchType.BANK_FALLBACK
+                }?.monster?.id
+
+        showMonsterDialog(track)
+    }
+
+    // --------------------------------------------------
+    // MONSTER SELECTION
+    // --------------------------------------------------
+
+    private fun showMonsterDialog(
+        track: MidiTrackData
+    ) {
+
+        val midi = currentMidi ?: return
+
+        val automatic = suggestions.firstOrNull()
+
         val message = buildString {
-            append("Part ${currentPartIndex + 1} of ${midi.tracks.size}\n")
-            append(track.name)
-            append("\n\nMIDI instrument: ${instrumentName(track.program)}")
-            append("\nProgram: ${track.program}   Bank: ${track.bank}")
-            append("\nNotes: ${track.notes.size}")
-            append("\n\n")
-            if (best != null) {
-                append("Best automatic match: ${best.name}")
-                append("\nPlease approve this assignment or choose another monster.")
+
+            append(
+                "PART ${currentPartIndex + 1} OF ${midi.tracks.size}\n\n"
+            )
+
+            append("Track: ${track.name}\n")
+
+            append(
+                "Instrument: ${instrumentName(track.program)}\n"
+            )
+
+            append("Program: ${track.program}\n")
+
+            append("Bank: ${track.bank}\n")
+
+            append("Notes: ${track.notes.size}\n\n")
+
+            if (automatic != null) {
+
+                append(
+                    "Recommended monster: ${automatic.monster.name}\n"
+                )
+
+                append(
+                    "Match: ${automatic.matchType}\n"
+                )
+
+                append(
+                    automatic.reason
+                )
+
             } else {
-                append("No automatic monster match was found.")
-                append("\nChoose a monster manually before continuing.")
+
+                append(
+                    "No reliable automatic match was found.\n"
+                )
+
+                append(
+                    "Please select the monster manually."
+                )
             }
         }
 
-        val options = allMonsters.map { it.name }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Choose monster")
-            .setMessage(message)
-            .setSingleChoiceItems(options, allMonsters.indexOfFirst { it.id == chosen?.id }) { dialog, which ->
-                val monster = allMonsters[which]
-                monsterAssignments[currentPartIndex] = monster.id
-                (dialog as AlertDialog).setTitle("Selected: ${monster.name}")
+        val selected = selectedMonsterId
+
+        val selectedMonster = allMonsters.firstOrNull {
+            it.id == selected
+        }
+
+        val dialogContent = LinearLayout(this).apply {
+
+            orientation = LinearLayout.VERTICAL
+
+            setPadding(
+                dp(18),
+                dp(8),
+                dp(18),
+                dp(8)
+            )
+        }
+
+        val information = TextView(this).apply {
+
+            text = message
+
+            textSize = 14f
+
+            setTextColor(colors.cream)
+
+            setPadding(0, 0, 0, dp(12))
+        }
+
+        dialogContent.addView(information)
+
+        val currentSelection = TextView(this).apply {
+
+            text = "Selected: ${selectedMonster?.name ?: "None"}"
+
+            textSize = 16f
+
+            setTextColor(colors.gold)
+
+            typeface = Typeface.DEFAULT_BOLD
+
+            setPadding(0, dp(8), 0, dp(12))
+        }
+
+        dialogContent.addView(currentSelection)
+
+        val recommendationButton = button(
+            "VIEW MATCH SUGGESTIONS"
+        ) {
+
+            showSuggestionPicker {
+                currentSelection.text =
+                    "Selected: ${allMonsters.firstOrNull { it.id == selectedMonsterId }?.name ?: "None"}"
             }
-            .setNeutralButton("SKIP PART") { _, _ ->
-                skippedParts.add(currentPartIndex)
-                currentPartIndex++
-                showMonsterSelection()
+
+        }
+
+        dialogContent.addView(recommendationButton)
+
+        val manualButton = button(
+            "BROWSE ALL MONSTERS"
+        ) {
+
+            showManualMonsterPicker {
+
+                currentSelection.text =
+                    "Selected: ${allMonsters.firstOrNull { it.id == selectedMonsterId }?.name ?: "None"}"
             }
-            .setNegativeButton("CANCEL") { _, _ ->
-                convertButton.isEnabled = true
-                status("Assignment cancelled.")
-            }
-            .setPositiveButton("ACCEPT & NEXT") { _, _ ->
-                val selected = monsterAssignments[currentPartIndex]
-                    ?: chosen?.id
-                if (selected == null) {
-                    status("Choose a monster for this part before continuing.", true)
-                    showMonsterSelection()
-                } else {
-                    monsterAssignments[currentPartIndex] = selected
+        }
+
+        dialogContent.addView(manualButton)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("MONSTER ASSIGNMENT")
+            .setView(dialogContent)
+            .setPositiveButton("ACCEPT & NEXT", null)
+            .setNeutralButton("CHANGE MONSTER", null)
+            .setNegativeButton("CANCEL", null)
+            .create()
+
+        dialog.setOnShowListener {
+
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+
+                    val monsterId = selectedMonsterId
+
+                    if (monsterId == null) {
+
+                        showStatus(
+                            "Choose a monster before continuing.",
+                            true
+                        )
+
+                        return@setOnClickListener
+                    }
+
+                    monsterAssignments[currentPartIndex] =
+                        monsterId
+
+                    dialog.dismiss()
+
                     currentPartIndex++
-                    showMonsterSelection()
+
+                    showNextPart()
+                }
+
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener {
+
+                    showManualMonsterPicker {
+
+                        currentSelection.text =
+                            "Selected: ${allMonsters.firstOrNull { it.id == selectedMonsterId }?.name ?: "None"}"
+                    }
+                }
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                .setOnClickListener {
+
+                    dialog.dismiss()
+
+                    showStatus(
+                        "Monster selection paused."
+                    )
+                }
+        }
+
+        dialog.setOnCancelListener {
+
+            showStatus("Monster selection paused.")
+        }
+
+        dialog.show()
+    }
+
+    // --------------------------------------------------
+    // SUGGESTION PICKER
+    // --------------------------------------------------
+
+    private fun showSuggestionPicker(
+        onSelected: () -> Unit
+    ) {
+
+        if (suggestions.isEmpty()) {
+
+            AlertDialog.Builder(this)
+                .setTitle("No automatic matches")
+                .setMessage(
+                    "No matching MIDI instrument mapping was found. " +
+                        "Use Browse All Monsters to choose manually."
+                )
+                .setPositiveButton("OK", null)
+                .show()
+
+            return
+        }
+
+        val options = suggestions.map {
+
+            "${it.monster.name} — ${it.score}%\n${it.reason}"
+        }.toTypedArray()
+
+        val selectedIndex = suggestions.indexOfFirst {
+            it.monster.id == selectedMonsterId
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("MONSTER RECOMMENDATIONS")
+            .setSingleChoiceItems(
+                options,
+                selectedIndex
+            ) { dialog, which ->
+
+                selectedMonsterId =
+                    suggestions[which].monster.id
+
+                onSelected()
+
+                dialog.dismiss()
+            }
+            .setNegativeButton("BACK", null)
+            .show()
+    }
+
+    // --------------------------------------------------
+    // MANUAL MONSTER PICKER
+    // --------------------------------------------------
+
+    private fun showManualMonsterPicker(
+        onSelected: () -> Unit
+    ) {
+
+        val picker = LinearLayout(this).apply {
+
+            orientation = LinearLayout.VERTICAL
+
+            setPadding(dp(15), dp(10), dp(15), dp(10))
+        }
+
+        val search = EditText(this).apply {
+
+            hint = "Search monsters..."
+
+            setTextColor(colors.cream)
+
+            setHintTextColor(colors.muted)
+
+            background = rounded(
+                colors.panel,
+                colors.gold,
+                1,
+                10
+            )
+
+            setPadding(
+                dp(12),
+                dp(10),
+                dp(12),
+                dp(10)
+            )
+        }
+
+        picker.addView(search)
+
+        val list = ListView(this)
+
+        picker.addView(
+            list,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(390)
+            )
+        )
+
+        var displayed = allMonsters
+
+        fun refresh(query: String) {
+
+            displayed = if (query.isBlank()) {
+
+                allMonsters
+
+            } else {
+
+                allMonsters.filter {
+                    it.name.contains(
+                        query,
+                        ignoreCase = true
+                    )
                 }
             }
-            .setOnCancelListener {
-                convertButton.isEnabled = true
+
+            list.adapter = ArrayAdapter(
+                this,
+                android.R.layout.simple_list_item_1,
+                displayed.map { it.name }
+            )
+        }
+
+        refresh("")
+
+        search.addTextChangedListener(
+            object : android.text.TextWatcher {
+
+                override fun beforeTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int
+                ) {}
+
+                override fun onTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int
+                ) {
+                    refresh(s?.toString() ?: "")
+                }
+
+                override fun afterTextChanged(
+                    s: android.text.Editable?
+                ) {}
             }
-            .show()
+        )
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("SELECT A MONSTER")
+            .setView(picker)
+            .setNegativeButton("CANCEL", null)
+            .create()
+
+        list.setOnItemClickListener { _, _, position, _ ->
+
+            val monster = displayed.getOrNull(position)
+                ?: return@setOnItemClickListener
+
+            selectedMonsterId = monster.id
+
+            onSelected()
+
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
+
+    // --------------------------------------------------
+    // COMPOSITION REVIEW
+    // --------------------------------------------------
 
     private fun showCompositionReview() {
+
         val midi = currentMidi ?: return
-        val review = midi.tracks.mapIndexed { index, track ->
-            val monster = allMonsters.firstOrNull { it.id == monsterAssignments[index] }
-            "${index + 1}. ${track.name} → ${monster?.name ?: "Skipped"}"
-        }.joinToString("\n")
-        AlertDialog.Builder(this)
-            .setTitle("Review composition")
-            .setMessage(
-                "Time signature: $selectedNumerator/$selectedDenominator\n" +
-                    "Note division: 1/$selectedNoteDivision\n\n$review"
+
+        val report = StringBuilder()
+
+        report.append("SONG: ${midi.songName}\n\n")
+
+        report.append("BPM: $selectedTempo\n")
+
+        report.append(
+            "TIME SIGNATURE: $selectedNumerator/$selectedDenominator\n"
+        )
+
+        report.append(
+            "NOTE DIVISION: 1/$selectedNoteDivision\n\n"
+        )
+
+        report.append("MONSTER ASSIGNMENTS\n\n")
+
+        midi.tracks.forEachIndexed { index, track ->
+
+            if (track.notes.isEmpty()) return@forEachIndexed
+
+            val monster = allMonsters.firstOrNull {
+
+                it.id == monsterAssignments[index]
+            }
+
+            report.append(
+                "${index + 1}. ${track.name}\n"
             )
+
+            report.append(
+                "   ${monster?.name ?: "UNASSIGNED"}\n"
+            )
+
+            report.append(
+                "   ${track.notes.size} notes\n\n"
+            )
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("COMPOSITION REVIEW")
+            .setMessage(report.toString())
             .setNegativeButton("BACK") { _, _ ->
-                currentPartIndex = 0
-                showMonsterSelection()
+
+                currentPartIndex =
+                    (midi.tracks.size - 1).coerceAtLeast(0)
+
+                while (
+                    currentPartIndex > 0 &&
+                    midi.tracks[currentPartIndex].notes.isEmpty()
+                ) {
+                    currentPartIndex--
+                }
+
+                showNextPart()
             }
             .setPositiveButton("GENERATE MSM") { _, _ ->
-                startConversion()
+
+                generateMsm()
             }
             .show()
     }
 
-    private fun startConversion() {
+    // --------------------------------------------------
+    // GENERATE MSM
+    // --------------------------------------------------
+
+    private fun generateMsm() {
+
         val midi = currentMidi ?: return
+
+        if (busy) return
+
         val assignments = monsterAssignments.toMap()
-        status("Generating MSM file…")
+
+        for ((index, track) in midi.tracks.withIndex()) {
+
+            if (track.notes.isEmpty()) continue
+
+            if (assignments[index] == null) {
+
+                showStatus(
+                    "Part ${index + 1} has no monster assigned.",
+                    true
+                )
+
+                return
+            }
+        }
+
+        busy = true
+
         convertButton.isEnabled = false
-        Thread {
+
+        showStatus("Generating your MSM composition...")
+
+        thread {
+
             try {
+
+                val configuredMidi = midi.copy(
+
+                    tempo = selectedTempo,
+
+                    timeNumerator = selectedNumerator,
+
+                    timeDenominator = selectedDenominator
+                )
+
+                // Run the converter's preflight analysis
+                // before generating the actual file.
+
+                val analysis = MsmConverter.analyzeConversion(
+                    this,
+                    configuredMidi,
+                    selectedNoteDivision,
+                    assignments
+                )
+
                 val output = MsmConverter.convert(
                     context = this,
-                    midi = midi,
+                    midi = configuredMidi,
                     minimumNote = selectedNoteDivision,
                     monsterAssignments = assignments
                 )
-                if (output.isEmpty()) throw IOException("The converter returned an empty file.")
-                runOnUiThread {
-                    convertedMsm = output
-                    convertButton.isEnabled = true
-                    status("Conversion complete. Choose where to save your MSM song.")
-                    val name = (selectedName ?: "converted_song")
-                        .substringBeforeLast('.').ifBlank { "converted_song" }
-                    saveMsm.launch("$name.msm")
+
+                if (output.isEmpty()) {
+
+                    throw IOException(
+                        "The generated MSM file is empty."
+                    )
                 }
-            } catch (e: Exception) {
+
                 runOnUiThread {
+
+                    convertedMsm = output
+
+                    busy = false
+
                     convertButton.isEnabled = true
-                    status("Conversion failed:\n${e.message}", true)
+
+                    showConversionReport(analysis)
+                }
+
+            } catch (e: Exception) {
+
+                runOnUiThread {
+
+                    busy = false
+
+                    convertButton.isEnabled = true
+
+                    showStatus(
+                        "Conversion failed:\n${e.message}",
+                        true
+                    )
                 }
             }
-        }.start()
+        }
     }
 
-    private fun saveConvertedFile(uri: Uri) {
+    // --------------------------------------------------
+    // CONVERSION REPORT
+    // --------------------------------------------------
+
+    private fun showConversionReport(
+        report: MsmConverter.ConversionReport
+    ) {
+
+        val message = StringBuilder()
+
+        message.append(
+            "Your composition has been generated.\n\n"
+        )
+
+        message.append("BPM: ${report.tempo}\n")
+
+        message.append(
+            "Time signature: " +
+                "${report.upperNumeral}/${report.lowerNumeral}\n\n"
+        )
+
+        report.tracks.forEach {
+
+            message.append("${it.monsterName}\n")
+
+            message.append(
+                "Pitch range: ${it.originalMinimumPitch}–" +
+                    "${it.originalMaximumPitch}\n"
+            )
+
+            message.append(
+                "Octave adjustment: ${it.octaveShift}\n"
+            )
+
+            message.append(
+                "Adjusted notes: ${it.adjustedNoteCount}/" +
+                    "${it.totalNoteCount}\n\n"
+            )
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("CONVERSION COMPLETE")
+            .setMessage(message.toString())
+            .setPositiveButton("SAVE MSM") { _, _ ->
+
+                val name = selectedName
+                    .substringBeforeLast(".")
+                    .ifBlank { "converted_song" }
+
+                msmSaver.launch("$name.msm")
+            }
+            .setNegativeButton("CLOSE", null)
+            .show()
+
+        showStatus(
+            "Composition generated successfully.",
+            false
+        )
+    }
+
+    // --------------------------------------------------
+    // SAVE FILE
+    // --------------------------------------------------
+
+    private fun saveMsm(uri: Uri) {
+
         val bytes = convertedMsm ?: return
+
         try {
+
             contentResolver.openOutputStream(uri)?.use {
+
                 it.write(bytes)
+
                 it.flush()
-            } ?: throw IOException("Could not open the destination file.")
-            status("MSM song saved successfully.")
+            } ?: throw IOException(
+                "Unable to open destination."
+            )
+
+            showStatus(
+                "Your MSM composition was saved successfully."
+            )
+
         } catch (e: Exception) {
-            status("Could not save file:\n${e.message}", true)
+
+            showStatus(
+                "File saving failed: ${e.message}",
+                true
+            )
         }
     }
 
-    private fun section(heading: String): LinearLayout {
-        val box = LinearLayout(this).apply {
+    // --------------------------------------------------
+    // SPINNER
+    // --------------------------------------------------
+
+    private fun createSpinner(
+        values: List<String>,
+        selected: String,
+        onChanged: (String) -> Unit
+    ): Spinner {
+
+        val spinner = Spinner(this)
+
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            values
+        )
+
+        adapter.setDropDownViewResource(
+            android.R.layout.simple_spinner_dropdown_item
+        )
+
+        spinner.adapter = adapter
+
+        spinner.setSelection(
+            values.indexOf(selected).coerceAtLeast(0),
+            false
+        )
+
+        spinner.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+
+                    onChanged(values[position])
+                }
+
+                override fun onNothingSelected(
+                    parent: android.widget.AdapterView<*>?
+                ) {}
+            }
+
+        return spinner
+    }
+
+    private fun spinnerColumn(
+        heading: String,
+        spinner: Spinner
+    ): LinearLayout {
+
+        return LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(13), dp(14), dp(14))
-            background = rounded(panel, gold, 2, 14)
-        }
-        box.addView(text(heading, 17f, gold, true))
-        return box.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, dp(8), 0, dp(12)) }
+
+            gravity = Gravity.CENTER
+
+            addView(
+                text(
+                    heading,
+                    11f,
+                    colors.gold,
+                    true
+                )
+            )
+
+            addView(
+                spinner,
+                matchWrap()
+            )
         }
     }
 
-    private fun actionButton(label: String, action: () -> Unit): Button {
+    private fun selectSpinnerValue(
+        spinner: Spinner,
+        value: String
+    ) {
+
+        val adapter = spinner.adapter ?: return
+
+        for (index in 0 until adapter.count) {
+
+            if (adapter.getItem(index).toString() == value) {
+
+                spinner.setSelection(index)
+
+                return
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    // SETTINGS DISPLAY
+    // --------------------------------------------------
+
+    private fun updateTimeSignature() {
+
+        timeSignatureView.text =
+            "$selectedNumerator / $selectedDenominator"
+    }
+
+    private fun updateDivisionButtons() {
+
+        showStatus(
+            "Smallest note division: 1/$selectedNoteDivision"
+        )
+    }
+
+    // --------------------------------------------------
+    // GENERAL UI HELPERS
+    // --------------------------------------------------
+
+    private fun section(title: String): LinearLayout {
+
+        val box = LinearLayout(this).apply {
+
+            orientation = LinearLayout.VERTICAL
+
+            setPadding(
+                dp(15),
+                dp(14),
+                dp(15),
+                dp(15)
+            )
+
+            background = rounded(
+                colors.panel,
+                colors.gold,
+                2,
+                15
+            )
+        }
+
+        box.addView(
+            text(
+                title,
+                16f,
+                colors.gold,
+                true
+            )
+        )
+
+        box.layoutParams =
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                setMargins(
+                    0,
+                    dp(8),
+                    0,
+                    dp(12)
+                )
+            }
+
+        return box
+    }
+
+    private fun button(
+        label: String,
+        action: () -> Unit
+    ): Button {
+
         return Button(this).apply {
+
             text = label
-            textSize = 12f
-            setTextColor(dark)
-            typeface = Typeface.create("sans-serif-rounded", Typeface.BOLD)
-            background = rounded(gold, cream, 1, 12)
+
+            textSize = 13f
+
             isAllCaps = false
-            setOnClickListener { action() }
+
+            setTextColor(colors.background)
+
+            typeface = Typeface.create(
+                "sans-serif-rounded",
+                Typeface.BOLD
+            )
+
+            background = rounded(
+                colors.gold,
+                colors.cream,
+                1,
+                12
+            )
+
+            setOnClickListener {
+                action()
+            }
         }
     }
 
-    private fun text(value: String, size: Float, color: Int, bold: Boolean): TextView {
+    private fun text(
+        value: String,
+        size: Float,
+        color: Int,
+        bold: Boolean
+    ): TextView {
+
         return TextView(this).apply {
+
             text = value
+
             textSize = size
+
             setTextColor(color)
+
             typeface = Typeface.create(
                 "sans-serif-rounded",
                 if (bold) Typeface.BOLD else Typeface.NORMAL
@@ -402,42 +1510,112 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun rounded(fill: Int, stroke: Int, width: Int, radius: Int) =
-        GradientDrawable().apply {
-            setColor(fill)
-            setStroke(dp(width), stroke)
-            cornerRadius = dp(radius).toFloat()
-        }
+    private fun rounded(
+        fill: Int,
+        stroke: Int,
+        width: Int,
+        radius: Int
+    ): GradientDrawable {
 
-    private fun status(message: String, error: Boolean = false) {
-        if (::statusText.isInitialized) {
-            statusText.text = message
-            statusText.setTextColor(if (error) Color.rgb(255, 135, 120) else cream)
+        return GradientDrawable().apply {
+
+            setColor(fill)
+
+            setStroke(
+                dp(width),
+                stroke
+            )
+
+            cornerRadius = dp(radius).toFloat()
         }
     }
 
-    private fun queryName(uri: Uri): String? {
-        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (index >= 0 && cursor.moveToFirst()) return cursor.getString(index)
+    private fun matchWrap() =
+        LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+
+    private fun weightParams() =
+        LinearLayout.LayoutParams(
+            0,
+            dp(52),
+            1f
+        ).apply {
+
+            setMargins(
+                dp(4),
+                dp(4),
+                dp(4),
+                dp(4)
+            )
         }
+
+    private fun dp(value: Int): Int {
+
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
+    }
+
+    // --------------------------------------------------
+    // FILE NAME
+    // --------------------------------------------------
+
+    private fun getFileName(uri: Uri): String? {
+
+        contentResolver.query(
+            uri,
+            null,
+            null,
+            null,
+            null
+        )?.use { cursor ->
+
+            val index = cursor.getColumnIndex(
+                OpenableColumns.DISPLAY_NAME
+            )
+
+            if (index >= 0 && cursor.moveToFirst()) {
+
+                return cursor.getString(index)
+            }
+        }
+
         return uri.lastPathSegment
     }
 
-    private fun instrumentName(program: Int): String =
-        if (program in 0..127) "GM instrument ${program + 1}" else "Instrument not specified"
+    // --------------------------------------------------
+    // INSTRUMENT NAMES
+    // --------------------------------------------------
 
-    private fun matchWrap() = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT,
-        LinearLayout.LayoutParams.WRAP_CONTENT
-    )
+    private fun instrumentName(program: Int): String {
 
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
+        return if (program in 0..127) {
 
-    override fun onDestroy() {
-        loadingAnimator?.cancel()
-        loadingAnimator = null
-        super.onDestroy()
+            "GM Instrument ${program + 1}"
+
+        } else {
+
+            "Unspecified MIDI instrument"
+        }
+    }
+
+    // --------------------------------------------------
+    // STATUS
+    // --------------------------------------------------
+
+    private fun showStatus(
+        message: String,
+        error: Boolean = false
+    ) {
+
+        if (!::statusView.isInitialized) return
+
+        statusView.text = message
+
+        statusView.setTextColor(
+            if (error) colors.red else colors.cream
+        )
     }
 }
