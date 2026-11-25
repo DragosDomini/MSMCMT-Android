@@ -1,5 +1,5 @@
 
-package com.cyndyrfyrestudios.msmtools
+package com.cyndyrfyrestudios.msmcmt
 
 /**
  * Pitch conversion bridge between the existing MSM converter
