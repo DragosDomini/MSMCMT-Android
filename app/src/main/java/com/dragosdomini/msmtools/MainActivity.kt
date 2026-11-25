@@ -708,79 +708,82 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun validateAllAssignments() {
+    val midi = parsedMidi
 
-        val midi = parsedMidi
-
-        if (midi == null) {
-            showMessage(
-                "No composition",
-                "Import a MIDI file first."
-            )
-            return
-        }
-
-        val missing = mutableListOf<String>()
-        val incompatible = mutableListOf<String>()
-        var validated = 0
-
-        midi.tracks.forEachIndexed { index, track ->
-
-            if (track.notes.isEmpty()) return@forEachIndexed
-
-            val monsterId = assignments[index]
-
-            if (monsterId == null) {
-                missing.add(track.name)
-                return@forEachIndexed
-            }
-
-            val monster = MonsterMapping.getMonster(monsterId)
-
-            if (monster == null) {
-                missing.add(track.name)
-                return@forEachIndexed
-            }
-
-            val result = MonsterMapping.analyzeCompatibility(
-                monster,
-                track.notes.map { it.pitch }
-            )
-
-            if (!result.accommodatesEntireTrack) {
-                incompatible.add(
-                    "${track.name}: ${result.score}%"
-                )
-            } else {
-                validated++
-            }
-        }
-
-        val message = buildString {
-
-            append("Fully compatible parts: $validated\n\n")
-
-            if (missing.isNotEmpty()) {
-                append("Unassigned parts:\n")
-                missing.forEach { append("- $it\n") }
-                append("\n")
-            }
-
-            if (incompatible.isNotEmpty()) {
-                append("Parts needing attention:\n")
-                incompatible.forEach { append("- $it\n") }
-            }
-
-            if (missing.isEmpty() && incompatible.isEmpty()) {
-                append("All assignments accommodate their entire tracks.")
-            } else {
-                append(
-                    "\nReview the recommendations before conversion."
-                )
-            }
-        }
-
-        showMessage("Assignment validation", message)
+    if (midi == null) {
+        showMessage("No composition", "Import a MIDI file first.")
+        return
     }
+
+    val minimumCompatibility = 70
+    val missing = mutableListOf<String>()
+    val belowThreshold = mutableListOf<String>()
+    val passed = mutableListOf<String>()
+
+    midi.tracks.forEachIndexed { index, track ->
+        if (track.notes.isEmpty()) return@forEachIndexed
+
+        val monsterId = assignments[index]
+
+        if (monsterId == null) {
+            missing.add(track.name)
+            return@forEachIndexed
+        }
+
+        val monster = MonsterMapping.getMonster(monsterId)
+
+        if (monster == null) {
+            missing.add(track.name)
+            return@forEachIndexed
+        }
+
+        val result = MonsterMapping.analyzeCompatibility(
+            monster,
+            track.notes.map { it.pitch }
+        )
+
+        if (result.score >= minimumCompatibility) {
+            passed.add("${track.name}: ${result.score}%")
+        } else {
+            belowThreshold.add("${track.name}: ${result.score}%")
+        }
+    }
+
+    val allPartsPassed =
+        missing.isEmpty() &&
+        belowThreshold.isEmpty() &&
+        passed.isNotEmpty()
+
+    val message = buildString {
+        append("Compatibility requirement: 70% or higher\n\n")
+        append("Parts passing: ${passed.size}\n\n")
+
+        if (missing.isNotEmpty()) {
+            append("Unassigned parts:\n")
+            missing.forEach { append("- $it\n") }
+            append("\n")
+        }
+
+        if (belowThreshold.isNotEmpty()) {
+            append("Parts below 70%:\n")
+            belowThreshold.forEach { append("- $it\n") }
+            append("\n")
+        }
+
+        if (allPartsPassed) {
+            append("All parts meet the requirement.\n")
+            append("The composition is approved to proceed to conversion.")
+        } else {
+            append("Conversion remains locked until every part passes.")
+        }
+    }
+
+    showMessage(
+        if (allPartsPassed) "Composition approved"
+        else "Composition not ready",
+        message
+    )
+}
 
     // --------------------------------------------------
     // UI HELPERS
