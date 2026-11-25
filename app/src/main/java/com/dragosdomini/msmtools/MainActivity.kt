@@ -50,7 +50,7 @@ class MonsterCompatibilityPanel(
         root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 20, 20, 20)
-            background = rounded(dark, 22)
+            background = rounded(dark, 22f)
         }
 
         val title = TextView(context).apply {
@@ -162,7 +162,7 @@ class MonsterCompatibilityPanel(
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 14, 16, 14)
-            background = rounded(panel, 16)
+            background = rounded(panel, 16f)
         }
 
         val title = TextView(context).apply {
