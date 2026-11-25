@@ -63,7 +63,7 @@ Program 0 - 127
 |       Boodoo          |   53          |       124     |
 |       Kazilleon       |   34          |       6       |
 |       Bellowfish      |   21          |       0       |
-|       Dragonk         |   51          |       123     |
+|       Dragong         |   51          |       123     |
 |       Fung Pray       |   48          |       0       |
 |       Punkleton       |   34          |       7       |   
 |       Yool            |   34          |       8       |
