@@ -1,5 +1,5 @@
 
-package com.cyndyrfyrestudios.msmtools
+package com.cyndyrfyrestudios.msmcmt
 
 import android.content.Context
 import net.jpountz.lz4.LZ4Factory
