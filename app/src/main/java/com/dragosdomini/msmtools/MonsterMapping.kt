@@ -4,21 +4,20 @@ package com.dragosdomini.msmtools
 import android.content.Context
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Locale
 
 /**
- * MonsterMapping
+ * MSM Monster Mapping
  *
- * Loads monster information from mdata.json and provides
- * MIDI instrument-to-monster matching.
+ * Loads the existing mdata.json database.
+ * Supports MIDI program/bank matching, ranked suggestions,
+ * manual monster selection and database validation.
  *
- * Supports:
- * - Exact MIDI program and bank matching.
- * - Bank-zero fallback matching.
- * - Multiple monster recommendations.
- * - Best-match selection.
- * - Manual monster lookup and searching.
- * - Unknown MIDI instruments without Tweedle fallback.
+ * IMPORTANT:
+ * The current database does not contain verified pitch ranges.
+ * This class does not invent them.
  */
+
 object MonsterMapping {
 
     data class Monster(
@@ -34,6 +33,7 @@ object MonsterMapping {
     enum class MatchType {
         EXACT,
         BANK_FALLBACK,
+        SAME_PROGRAM_OTHER_BANK,
         NONE
     }
 
@@ -44,104 +44,131 @@ object MonsterMapping {
         val reason: String
     )
 
+    private val lock = Any()
+
+    @Volatile
     private var monsters: List<Monster> = emptyList()
+
+    @Volatile
     private var loaded = false
 
-    // --------------------------------------------------
-    // DATABASE LOADING
-    // --------------------------------------------------
-
-    @Synchronized
+    /**
+     * Load mdata.json from Android assets.
+     */
+    @Throws(IOException::class)
     fun load(context: Context) {
 
         if (loaded) return
 
-        val jsonText = try {
-            context.assets.open("mdata.json")
-                .bufferedReader()
-                .use { it.readText() }
-        } catch (e: Exception) {
-            throw IOException(
-                "Could not load mdata.json: ${e.message}"
-            )
-        }
+        synchronized(lock) {
 
-        val json = try {
-            JSONObject(jsonText)
-        } catch (e: Exception) {
-            throw IOException(
-                "Monster database contains invalid JSON."
-            )
-        }
+            if (loaded) return
 
-        val loadedMonsters = mutableListOf<Monster>()
+            val jsonText = try {
 
-        val keys = json.keys()
+                context.applicationContext.assets
+                    .open("mdata.json")
+                    .bufferedReader()
+                    .use { it.readText() }
 
-        while (keys.hasNext()) {
+            } catch (e: Exception) {
 
-            val idString = keys.next()
+                throw IOException(
+                    "Unable to load mdata.json: ${e.message}",
+                    e
+                )
+            }
 
-            val entry = json.optJSONObject(idString)
-                ?: continue
+            val json = try {
 
-            val id = idString.toIntOrNull()
-                ?: continue
+                JSONObject(jsonText)
 
-            val name = entry.optString("name", "")
+            } catch (e: Exception) {
 
-            if (name.isBlank()) continue
+                throw IOException(
+                    "Invalid mdata.json: ${e.message}",
+                    e
+                )
+            }
 
-            loadedMonsters.add(
-                Monster(
-                    id = id,
-                    name = name,
-                    posX = entry.optInt("pos_x", 0),
-                    posY = entry.optInt("pos_y", 0),
-                    flip = entry.optInt("flip", 0),
-                    midiProgram = entry.optInt(
-                        "midi_program",
-                        -1
-                    ),
-                    midiBank = entry.optInt(
-                        "midi_bank_select_msb",
-                        0
+            val parsed = mutableListOf<Monster>()
+
+            val keys = json.keys()
+
+            while (keys.hasNext()) {
+
+                val key = keys.next()
+
+                val id = key.toIntOrNull() ?: continue
+
+                val entry = json.optJSONObject(key) ?: continue
+
+                val name = entry
+                    .optString("name", "")
+                    .trim()
+
+                if (name.isEmpty()) continue
+
+                val program = entry.optInt(
+                    "midi_program",
+                    -1
+                )
+
+                val bank = entry.optInt(
+                    "midi_bank_select_msb",
+                    0
+                )
+
+                if (program !in -1..127) continue
+                if (bank !in 0..127) continue
+
+                parsed.add(
+                    Monster(
+                        id = id,
+                        name = name,
+                        posX = entry.optInt("pos_x", 0),
+                        posY = entry.optInt("pos_y", 0),
+                        flip = entry.optInt("flip", 0),
+                        midiProgram = program,
+                        midiBank = bank
                     )
                 )
-            )
+            }
+
+            if (parsed.isEmpty()) {
+
+                throw IOException(
+                    "No valid monsters found in mdata.json."
+                )
+            }
+
+            val duplicateIds = parsed
+                .groupBy { it.id }
+                .filterValues { it.size > 1 }
+                .keys
+
+            if (duplicateIds.isNotEmpty()) {
+
+                throw IOException(
+                    "Duplicate monster IDs: ${duplicateIds.joinToString()}"
+                )
+            }
+
+            monsters = parsed.sortedBy { it.id }
+
+            loaded = true
         }
-
-        if (loadedMonsters.isEmpty()) {
-            throw IOException(
-                "Monster database contains no valid monsters."
-            )
-        }
-
-        monsters = loadedMonsters
-            .sortedBy { it.id }
-
-        loaded = true
     }
 
-    // --------------------------------------------------
-    // BANK NORMALIZATION
-    // --------------------------------------------------
-
     /**
-     * MidiReader stores the complete 14-bit bank value:
+     * Normalize MIDI bank representation.
      *
-     * (MSB shl 7) or LSB
-     *
-     * mdata.json stores only the MSB.
-     *
-     * This function converts the complete bank value
-     * into the format used by the monster database.
+     * Accepts either an MSB value (0-127)
+     * or a combined MIDI bank value (0-16383).
      */
     private fun normalizeBank(bank: Int): Int? {
 
-        if (bank !in 0..16383) {
-            return null
-        }
+        if (bank !in 0..16383) return null
 
         return if (bank > 127) {
             bank ushr 7
@@ -150,10 +177,9 @@ object MonsterMapping {
         }
     }
 
-    // --------------------------------------------------
-    // MONSTER DATABASE ACCESS
-    // --------------------------------------------------
-
+    /**
+     * Retrieve all monsters.
+     */
     fun getAllMonsters(
         context: Context
     ): List<Monster> {
@@ -163,6 +189,9 @@ object MonsterMapping {
         return monsters.toList()
     }
 
+    /**
+     * Retrieve monster count.
+     */
     fun getMonsterCount(
         context: Context
     ): Int {
@@ -172,10 +201,78 @@ object MonsterMapping {
         return monsters.size
     }
 
-    // --------------------------------------------------
-    // MATCH TYPE
-    // --------------------------------------------------
+    /**
+     * Find monster by ID.
+     */
+    fun findMonsterById(
+        context: Context,
+        monsterId: Int
+    ): Monster? {
 
+        load(context)
+
+        return monsters.firstOrNull {
+            it.id == monsterId
+        }
+    }
+
+    /**
+     * Find monster by name.
+     */
+    fun findMonsterByName(
+        context: Context,
+        name: String
+    ): Monster? {
+
+        load(context)
+
+        if (name.isBlank()) return null
+
+        return monsters.firstOrNull {
+            it.name.equals(
+                name.trim(),
+                ignoreCase = true
+            )
+        }
+    }
+
+    /**
+     * Search monster names.
+     */
+    fun searchMonsters(
+        context: Context,
+        query: String
+    ): List<Monster> {
+
+        load(context)
+
+        if (query.isBlank()) return emptyList()
+
+        return monsters.filter {
+            it.name.contains(
+                query.trim(),
+                ignoreCase = true
+            )
+        }
+    }
+
+    /**
+     * Check whether a monster ID exists.
+     */
+    fun isValidMonster(
+        context: Context,
+        monsterId: Int
+    ): Boolean {
+
+        return findMonsterById(
+            context,
+            monsterId
+        ) != null
+    }
+
+    /**
+     * Determine MIDI mapping compatibility.
+     */
     fun getMatchType(
         context: Context,
         program: Int,
@@ -196,110 +293,25 @@ object MonsterMapping {
             return MatchType.NONE
         }
 
-        if (monster.midiBank == normalizedBank) {
-            return MatchType.EXACT
-        }
+        return when {
 
-        if (monster.midiBank == 0) {
-            return MatchType.BANK_FALLBACK
-        }
+            monster.midiBank == normalizedBank ->
+                MatchType.EXACT
 
-        return MatchType.NONE
+            monster.midiBank == 0 ->
+                MatchType.BANK_FALLBACK
+
+            else ->
+                MatchType.NONE
+        }
     }
 
-    // --------------------------------------------------
-    // BEST MATCH
-    // --------------------------------------------------
-
     /**
-     * Automatically finds the best matching monster.
+     * Generate ranked monster suggestions.
      *
-     * Exact program and bank matches are preferred.
-     *
-     * Bank-zero alternatives are used only when no
-     * exact match exists.
-     *
-     * Returns null when no valid recommendation exists.
-     */
-    fun findBestMonster(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): Monster? {
-
-        val suggestions = findMonsterSuggestions(
-            context,
-            program,
-            bank
-        )
-
-        return suggestions.firstOrNull()
-    }
-
-    // --------------------------------------------------
-    // MATCH SUGGESTIONS
-    // --------------------------------------------------
-
-    /**
-     * Finds all recommended monsters for a MIDI instrument.
-     *
-     * Matching priority:
-     *
-     * 1. Exact MIDI program and bank.
-     * 2. Matching MIDI program with bank zero.
-     * 3. No match.
-     *
-     * Unknown programs are never automatically matched.
-     */
-    fun findMonsterSuggestions(
-        context: Context,
-        program: Int,
-        bank: Int
-    ): List<Monster> {
-
-        load(context)
-
-        if (program !in 0..127) {
-            return emptyList()
-        }
-
-        val normalizedBank = normalizeBank(bank)
-            ?: return emptyList()
-
-        // Exact matches always receive priority.
-
-        val exactMatches = monsters.filter {
-            it.midiProgram == program &&
-            it.midiBank == normalizedBank
-        }
-
-        if (exactMatches.isNotEmpty()) {
-            return exactMatches.sortedBy { it.id }
-        }
-
-        // Offer bank-zero alternatives when an exact
-        // program and bank combination cannot be found.
-
-        if (normalizedBank != 0) {
-
-            return monsters.filter {
-                it.midiProgram == program &&
-                it.midiBank == 0
-            }.sortedBy { it.id }
-        }
-
-        return emptyList()
-    }
-
-    // --------------------------------------------------
-    // DETAILED SUGGESTIONS
-    // --------------------------------------------------
-
-    /**
-     * Returns recommendations with match explanations.
-     *
-     * Useful for displaying why a particular monster
-     * was recommended in MainActivity.
+     * Exact matches are preferred.
+     * Bank-zero fallback matches are secondary.
+     * Other-bank matches are manual alternatives only.
      */
     fun getDetailedSuggestions(
         context: Context,
@@ -316,56 +328,121 @@ object MonsterMapping {
         val normalizedBank = normalizeBank(bank)
             ?: return emptyList()
 
-        val exactMatches = monsters.filter {
-            it.midiProgram == program &&
+        val sameProgram = monsters.filter {
+            it.midiProgram == program
+        }
+
+        if (sameProgram.isEmpty()) {
+            return emptyList()
+        }
+
+        val exact = sameProgram.filter {
             it.midiBank == normalizedBank
         }
 
-        if (exactMatches.isNotEmpty()) {
-
-            return exactMatches
-                .sortedBy { it.id }
-                .map { monster ->
-
-                    MonsterSuggestion(
-                        monster = monster,
-                        matchType = MatchType.EXACT,
-                        score = 100,
-                        reason = "Exact MIDI program and bank match"
-                    )
-                }
-        }
-
-        if (normalizedBank != 0) {
-
-            return monsters.filter {
-                it.midiProgram == program &&
+        val fallback = sameProgram.filter {
+            normalizedBank != 0 &&
                 it.midiBank == 0
-            }
-                .sortedBy { it.id }
-                .map { monster ->
-
-                    MonsterSuggestion(
-                        monster = monster,
-                        matchType = MatchType.BANK_FALLBACK,
-                        score = 75,
-                        reason = "Matching MIDI program; bank-zero alternative"
-                    )
-                }
         }
 
-        return emptyList()
+        val otherBanks = sameProgram.filter {
+            it.midiBank != normalizedBank &&
+                it.midiBank != 0
+        }
+
+        val suggestions = mutableListOf<MonsterSuggestion>()
+
+        exact.forEach {
+
+            suggestions.add(
+                MonsterSuggestion(
+                    monster = it,
+                    matchType = MatchType.EXACT,
+                    score = 100,
+                    reason = "Exact MIDI program and bank match."
+                )
+            )
+        }
+
+        fallback.forEach {
+
+            suggestions.add(
+                MonsterSuggestion(
+                    monster = it,
+                    matchType = MatchType.BANK_FALLBACK,
+                    score = 75,
+                    reason = "MIDI program matches. Database bank is 0."
+                )
+            )
+        }
+
+        otherBanks.forEach {
+
+            suggestions.add(
+                MonsterSuggestion(
+                    monster = it,
+                    matchType = MatchType.SAME_PROGRAM_OTHER_BANK,
+                    score = 40,
+                    reason = "MIDI program matches, but bank differs. Manual review recommended."
+                )
+            )
+        }
+
+        return suggestions.sortedWith(
+            compareByDescending<MonsterSuggestion> {
+                it.score
+            }.thenBy {
+                it.monster.name.lowercase(Locale.ROOT)
+            }.thenBy {
+                it.monster.id
+            }
+        )
     }
 
-    // --------------------------------------------------
-    // SINGLE MONSTER LOOKUP
-    // --------------------------------------------------
+    /**
+     * Backward-compatible suggestion method.
+     *
+     * Does not return unrelated monsters.
+     * Does not default to Tweedle.
+     */
+    fun findMonsterSuggestions(
+        context: Context,
+        program: Int,
+        bank: Int
+    ): List<Monster> {
+
+        return getDetailedSuggestions(
+            context,
+            program,
+            bank
+        )
+            .filter {
+                it.matchType == MatchType.EXACT ||
+                    it.matchType == MatchType.BANK_FALLBACK
+            }
+            .map {
+                it.monster
+            }
+    }
 
     /**
-     * Finds a monster using an exact MIDI program and bank.
-     *
-     * If no exact match exists, a bank-zero alternative
-     * may be returned.
+     * Find the best available instrument mapping.
+     */
+    fun findBestMonster(
+        context: Context,
+        program: Int,
+        bank: Int
+    ): Monster? {
+
+        return findMonsterSuggestions(
+            context,
+            program,
+            bank
+        ).firstOrNull()
+    }
+
+    /**
+     * Legacy method compatibility.
      */
     fun findMonster(
         context: Context,
@@ -380,78 +457,11 @@ object MonsterMapping {
         )
     }
 
-    // --------------------------------------------------
-    // MONSTER ID LOOKUP
-    // --------------------------------------------------
-
-    fun findMonsterById(
-        context: Context,
-        monsterId: Int
-    ): Monster? {
-
-        load(context)
-
-        return monsters.firstOrNull {
-            it.id == monsterId
-        }
-    }
-
-    // --------------------------------------------------
-    // MONSTER NAME SEARCH
-    // --------------------------------------------------
-
-    fun searchMonsters(
-        context: Context,
-        query: String
-    ): List<Monster> {
-
-        load(context)
-
-        if (query.isBlank()) {
-            return emptyList()
-        }
-
-        val searchTerm = query.trim()
-
-        return monsters.filter {
-            it.name.contains(
-                searchTerm,
-                ignoreCase = true
-            )
-        }
-    }
-
-    // --------------------------------------------------
-    // MONSTER NAME LOOKUP
-    // --------------------------------------------------
-
-    fun findMonsterByName(
-        context: Context,
-        name: String
-    ): Monster? {
-
-        load(context)
-
-        if (name.isBlank()) {
-            return null
-        }
-
-        return monsters.firstOrNull {
-            it.name.equals(
-                name.trim(),
-                ignoreCase = true
-            )
-        }
-    }
-
-    // --------------------------------------------------
-    // REQUIRED MONSTER
-    // --------------------------------------------------
-
     /**
-     * Resolves an instrument or returns a useful error.
+     * Require a valid mapping.
      *
-     * Does not invent a monster when no mapping exists.
+     * Throws an informative exception instead
+     * of silently selecting an unrelated monster.
      */
     @Throws(IOException::class)
     fun requireMonster(
@@ -465,49 +475,65 @@ object MonsterMapping {
             program,
             bank
         ) ?: throw IOException(
+
             if (program == -1) {
-                "No MIDI instrument was specified for this track. " +
-                    "Please select a monster manually."
+
+                "No MIDI instrument program was detected. Please select a monster manually."
+
             } else {
-                "No monster mapping found for MIDI program " +
-                    "$program, bank $bank. " +
-                    "Please check your instrument selection."
+
+                "No monster mapping found for MIDI program $program, bank $bank. Please select a monster manually."
             }
         )
     }
 
-    // --------------------------------------------------
-    // MANUAL SELECTION VALIDATION
-    // --------------------------------------------------
-
     /**
-     * Checks whether a manually selected monster exists.
+     * Return every monster for manual selection.
      */
-    fun isValidMonster(
-        context: Context,
-        monsterId: Int
-    ): Boolean {
+    fun getManualSelectionOptions(
+        context: Context
+    ): List<Monster> {
 
-        return findMonsterById(
-            context,
-            monsterId
-        ) != null
+        load(context)
+
+        return monsters.sortedBy {
+            it.name.lowercase(Locale.ROOT)
+        }
     }
 
-    // --------------------------------------------------
-    // CACHE MANAGEMENT
-    // --------------------------------------------------
+    /**
+     * Legacy aliases.
+     */
+    fun getMonsterOptions(
+        context: Context
+    ): List<Monster> {
+
+        return getManualSelectionOptions(context)
+    }
+
+    fun getMonsterSuggestions(
+        context: Context,
+        program: Int,
+        bank: Int
+    ): List<Monster> {
+
+        return findMonsterSuggestions(
+            context,
+            program,
+            bank
+        )
+    }
 
     /**
-     * Clears the cached database.
-     *
-     * Useful when testing updated mdata.json files.
+     * Clear cached database.
      */
-    @Synchronized
     fun clearCache() {
 
-        monsters = emptyList()
+        synchronized(lock) {
 
-        loaded = false
+            monsters = emptyList()
+
+            loaded = false
+        }
     }
 }
