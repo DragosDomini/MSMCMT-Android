@@ -18,6 +18,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -27,6 +30,7 @@ class MainActivity : ComponentActivity() {
 
     private var parsedMidi: ParsedMidi? = null
     private var midiUri: Uri? = null
+    private var pendingMidiFile: File? = null
 
     // Each MIDI part receives its own monster assignment.
     private val assignments = mutableMapOf<Int, String>()
@@ -38,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var songInfoText: TextView
     private lateinit var trackContainer: LinearLayout
     private lateinit var content: LinearLayout
+    private lateinit var msmStatusText: TextView
 
     private val backgroundColor = Color.rgb(29, 40, 43)
     private val cardColor = Color.rgb(47, 64, 66)
@@ -45,14 +50,36 @@ class MainActivity : ComponentActivity() {
     private val textColor = Color.WHITE
     private val mutedColor = Color.rgb(185, 201, 198)
 
+    // MIDI → MSM input.
     private val midiPicker =
         registerForActivityResult(
             ActivityResultContracts.OpenDocument()
         ) { uri ->
-
             if (uri != null) {
                 midiUri = uri
                 importMidi(uri)
+            }
+        }
+
+    // MSM → MIDI input.
+    private val msmPicker =
+        registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                convertSelectedMsm(uri)
+            }
+        }
+
+    // Destination for converted MIDI.
+    private val midiSavePicker =
+        registerForActivityResult(
+            ActivityResultContracts.CreateDocument("audio/midi")
+        ) { uri ->
+            if (uri != null) {
+                saveConvertedMidi(uri)
+            } else {
+                msmStatusText.text = "MIDI export cancelled."
             }
         }
 
@@ -87,7 +114,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val subtitle = TextView(this).apply {
-            text = "MIDI to Monster Composition"
+            text = "My Singing Monsters composition converter"
             textSize = 14f
             setTextColor(mutedColor)
             gravity = Gravity.CENTER
@@ -97,7 +124,22 @@ class MainActivity : ComponentActivity() {
         content.addView(header)
         content.addView(subtitle)
 
-        content.addView(section("COMPOSITION"))
+        // MSM → MIDI section.
+        content.addView(section("MSM → MIDI"))
+
+        content.addView(
+            createButton("Import MSM composition") {
+                msmPicker.launch(arrayOf("*/*"))
+            }
+        )
+
+        msmStatusText = createCardText(
+            "Choose an MSM composition to convert it into a MIDI file."
+        )
+        content.addView(msmStatusText)
+
+        // MIDI → MSM section.
+        content.addView(section("MIDI → MSM"))
 
         content.addView(
             createButton("Import MIDI composition") {
@@ -114,13 +156,11 @@ class MainActivity : ComponentActivity() {
         statusText = createCardText(
             "Waiting for a MIDI composition."
         )
-
         content.addView(statusText)
 
         songInfoText = createCardText(
             "Song information will appear here."
         )
-
         content.addView(songInfoText)
 
         content.addView(section("MONSTER ASSIGNMENTS"))
@@ -161,6 +201,10 @@ class MainActivity : ComponentActivity() {
         setContentView(scroll)
     }
 
+    // --------------------------------------------------
+    // DATABASE
+    // --------------------------------------------------
+
     private fun loadDatabase() {
 
         try {
@@ -185,6 +229,134 @@ class MainActivity : ComponentActivity() {
             showMessage(
                 "Database error",
                 e.message ?: "Unable to load monster database."
+            )
+        }
+    }
+
+    // --------------------------------------------------
+    // MSM → MIDI CONVERSION
+    // --------------------------------------------------
+
+    private fun convertSelectedMsm(uri: Uri) {
+
+        msmStatusText.text = "Reading MSM composition..."
+
+        Thread {
+            try {
+                val inputFile = File(cacheDir, "msmcmt_input.msm")
+                val outputFile = File(cacheDir, "msmcmt_converted.mid")
+
+                // Copy selected document into app cache.
+                contentResolver.openInputStream(uri)?.use { input ->
+                    inputFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw IllegalStateException(
+                    "Unable to open the selected MSM file."
+                )
+
+                if (inputFile.length() == 0L) {
+                    throw IllegalArgumentException(
+                        "The selected MSM file is empty."
+                    )
+                }
+
+                // Start Python runtime if it is not already running.
+                if (!Python.isStarted()) {
+                    Python.start(AndroidPlatform(this))
+                }
+
+                // Import the existing Python converter.
+                val converter = Python.getInstance()
+                    .getModule("msm2mid")
+
+                // Call the Android-safe conversion function.
+                converter.callAttr(
+                    "convert_msm_to_midi",
+                    inputFile.absolutePath,
+                    outputFile.absolutePath,
+                    8,
+                    null,
+                    false,
+                    null
+                )
+
+                if (!outputFile.exists() || outputFile.length() == 0L) {
+                    throw IllegalStateException(
+                        "The converter did not create a MIDI file."
+                    )
+                }
+
+                runOnUiThread {
+                    pendingMidiFile = outputFile
+
+                    msmStatusText.text =
+                        "Conversion complete. Choose where to save your MIDI."
+
+                    midiSavePicker.launch(
+                        inputFile.nameWithoutExtension + ".mid"
+                    )
+                }
+
+            } catch (e: Exception) {
+
+                Log.e(TAG, "MSM to MIDI conversion failed", e)
+
+                runOnUiThread {
+                    msmStatusText.text =
+                        "MSM conversion failed: ${e.message}"
+
+                    showMessage(
+                        "MSM conversion error",
+                        e.message ?: "Unable to convert this MSM file."
+                    )
+                }
+            }
+        }.start()
+    }
+
+    // --------------------------------------------------
+    // MIDI EXPORT
+    // --------------------------------------------------
+
+    private fun saveConvertedMidi(uri: Uri) {
+
+        val source = pendingMidiFile
+
+        if (source == null || !source.exists()) {
+            msmStatusText.text =
+                "No converted MIDI file is waiting to be saved."
+            return
+        }
+
+        try {
+            contentResolver.openOutputStream(uri)?.use { output ->
+                source.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            } ?: throw IllegalStateException(
+                "Unable to create the destination MIDI file."
+            )
+
+            msmStatusText.text =
+                "MIDI exported successfully: ${source.name}"
+
+            Toast.makeText(
+                this,
+                "MIDI file saved.",
+                Toast.LENGTH_SHORT
+            ).show()
+
+        } catch (e: Exception) {
+
+            Log.e(TAG, "MIDI export failed", e)
+
+            msmStatusText.text =
+                "MIDI export failed: ${e.message}"
+
+            showMessage(
+                "MIDI export error",
+                e.message ?: "Unable to save the MIDI file."
             )
         }
     }
@@ -223,7 +395,6 @@ class MainActivity : ComponentActivity() {
 
             parsedMidi = result
 
-            // New composition means new assignments.
             assignments.clear()
             selectedResults.clear()
 
@@ -280,7 +451,6 @@ class MainActivity : ComponentActivity() {
             if (track.notes.isEmpty()) return@forEachIndexed
 
             val pitches = track.notes.map { it.pitch }
-
             val assignedId = assignments[index]
 
             if (assignedId != null) {
@@ -297,8 +467,6 @@ class MainActivity : ComponentActivity() {
 
                     selectedResults[index] = result
 
-                    // Automatically recommend alternatives
-                    // when the current monster cannot play all notes.
                     if (!result.accommodatesEntireTrack) {
 
                         val alternatives =
@@ -329,7 +497,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // No assignment yet: automatically find the best match.
             val alternatives =
                 MonsterMapping.rankAlternatives(pitches)
 
@@ -388,9 +555,7 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        card.addView(
-            compatibilityIndicator(result)
-        )
+        card.addView(compatibilityIndicator(result))
 
         if (awaitingInitialApproval) {
 
@@ -422,9 +587,7 @@ class MainActivity : ComponentActivity() {
 
         if (alternatives.isNotEmpty()) {
 
-            card.addView(
-                section("ALTERNATIVE MONSTERS")
-            )
+            card.addView(section("ALTERNATIVE MONSTERS"))
 
             alternatives.take(5).forEachIndexed { rank, alternative ->
 
@@ -437,11 +600,11 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                val alternativeName = cardHeading(
-                    "#${rank + 1} ${alternative.monster.name}"
+                alternativeCard.addView(
+                    cardHeading(
+                        "#${rank + 1} ${alternative.monster.name}"
+                    )
                 )
-
-                alternativeCard.addView(alternativeName)
 
                 alternativeCard.addView(
                     detailText(
@@ -617,7 +780,6 @@ class MainActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("Choose monster for ${track.name}")
             .setItems(labels) { _, position ->
-
                 requestAssignmentApproval(
                     trackIndex,
                     ranked[position]
@@ -638,7 +800,6 @@ class MainActivity : ComponentActivity() {
     ) {
 
         val monsterId = result.monster.id
-
         val currentId = assignments[trackIndex]
 
         val currentName = currentId?.let {
@@ -657,7 +818,6 @@ class MainActivity : ComponentActivity() {
         }
 
         val message = buildString {
-
             append("Current assignment: $currentName\n\n")
             append("Proposed monster: ${result.monster.name}\n")
             append("Compatibility: ${result.score}%\n")
@@ -708,82 +868,87 @@ class MainActivity : ComponentActivity() {
     // --------------------------------------------------
 
     private fun validateAllAssignments() {
-    val midi = parsedMidi
 
-    if (midi == null) {
-        showMessage("No composition", "Import a MIDI file first.")
-        return
-    }
+        val midi = parsedMidi
 
-    val minimumCompatibility = 70
-    val missing = mutableListOf<String>()
-    val belowThreshold = mutableListOf<String>()
-    val passed = mutableListOf<String>()
-
-    midi.tracks.forEachIndexed { index, track ->
-        if (track.notes.isEmpty()) return@forEachIndexed
-
-        val monsterId = assignments[index]
-
-        if (monsterId == null) {
-            missing.add(track.name)
-            return@forEachIndexed
+        if (midi == null) {
+            showMessage(
+                "No composition",
+                "Import a MIDI file first."
+            )
+            return
         }
 
-        val monster = MonsterMapping.getMonster(monsterId)
+        val minimumCompatibility = 70
+        val missing = mutableListOf<String>()
+        val belowThreshold = mutableListOf<String>()
+        val passed = mutableListOf<String>()
 
-        if (monster == null) {
-            missing.add(track.name)
-            return@forEachIndexed
+        midi.tracks.forEachIndexed { index, track ->
+
+            if (track.notes.isEmpty()) return@forEachIndexed
+
+            val monsterId = assignments[index]
+
+            if (monsterId == null) {
+                missing.add(track.name)
+                return@forEachIndexed
+            }
+
+            val monster = MonsterMapping.getMonster(monsterId)
+
+            if (monster == null) {
+                missing.add(track.name)
+                return@forEachIndexed
+            }
+
+            val result = MonsterMapping.analyzeCompatibility(
+                monster,
+                track.notes.map { it.pitch }
+            )
+
+            if (result.score >= minimumCompatibility) {
+                passed.add("${track.name}: ${result.score}%")
+            } else {
+                belowThreshold.add("${track.name}: ${result.score}%")
+            }
         }
 
-        val result = MonsterMapping.analyzeCompatibility(
-            monster,
-            track.notes.map { it.pitch }
+        val allPartsPassed =
+            missing.isEmpty() &&
+            belowThreshold.isEmpty() &&
+            passed.isNotEmpty()
+
+        val message = buildString {
+            append("Compatibility requirement: 70% or higher\n\n")
+            append("Parts passing: ${passed.size}\n\n")
+
+            if (missing.isNotEmpty()) {
+                append("Unassigned parts:\n")
+                missing.forEach { append("- $it\n") }
+                append("\n")
+            }
+
+            if (belowThreshold.isNotEmpty()) {
+                append("Parts below 70%:\n")
+                belowThreshold.forEach { append("- $it\n") }
+                append("\n")
+            }
+
+            if (allPartsPassed) {
+                append("All parts meet the requirement.\n")
+                append("The composition is approved to proceed to conversion.")
+            } else {
+                append("Conversion remains locked until every part passes.")
+            }
+        }
+
+        showMessage(
+            if (allPartsPassed) "Composition approved"
+            else "Composition not ready",
+            message
         )
-
-        if (result.score >= minimumCompatibility) {
-            passed.add("${track.name}: ${result.score}%")
-        } else {
-            belowThreshold.add("${track.name}: ${result.score}%")
-        }
     }
-
-    val allPartsPassed =
-        missing.isEmpty() &&
-        belowThreshold.isEmpty() &&
-        passed.isNotEmpty()
-
-    val message = buildString {
-        append("Compatibility requirement: 70% or higher\n\n")
-        append("Parts passing: ${passed.size}\n\n")
-
-        if (missing.isNotEmpty()) {
-            append("Unassigned parts:\n")
-            missing.forEach { append("- $it\n") }
-            append("\n")
-        }
-
-        if (belowThreshold.isNotEmpty()) {
-            append("Parts below 70%:\n")
-            belowThreshold.forEach { append("- $it\n") }
-            append("\n")
-        }
-
-        if (allPartsPassed) {
-            append("All parts meet the requirement.\n")
-            append("The composition is approved to proceed to conversion.")
-        } else {
-            append("Conversion remains locked until every part passes.")
-        }
-    }
-
-    showMessage(
-        if (allPartsPassed) "Composition approved"
-        else "Composition not ready",
-        message
-    )
-}
 
     // --------------------------------------------------
     // UI HELPERS
