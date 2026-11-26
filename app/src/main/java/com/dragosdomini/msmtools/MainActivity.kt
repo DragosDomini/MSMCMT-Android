@@ -350,9 +350,9 @@ class MainActivity : ComponentActivity() {
                     Python.start(AndroidPlatform(this))
                 }
 
-                // Import the existing Python converter.
+                // Import the unified Python converter.
                 val converter = Python.getInstance()
-                    .getModule("msm2mid")
+                    .getModule("msmconverter")
 
                 // Call the Android-safe conversion function.
                 converter.callAttr(
