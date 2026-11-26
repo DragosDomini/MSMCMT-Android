@@ -151,7 +151,7 @@ def translateVolume(
 
 
 # --------------------------------------------------
-# MIDI CONVERSION
+# LEGACY MIDI CONVERSION
 # --------------------------------------------------
 
 def writeMidiFile(
@@ -316,6 +316,10 @@ def writeMidiFile(
     midi.save(target_filename)
 
 
+# --------------------------------------------------
+# MSM TO MIDI CONVERSION
+# --------------------------------------------------
+
 def writeMidiFile2(
     filename,
     min_note,
@@ -331,6 +335,40 @@ def writeMidiFile2(
     print("Creating MIDI File: " + target_filename)
 
     midi = miditoolkit.midi.parser.MidiFile()
+
+    # --------------------------------------------------
+    # TEMPO AND TIME SIGNATURE
+    # --------------------------------------------------
+
+    # Use the tempo extracted from the MSM song.
+    # Without this, MIDI defaults to 120 BPM.
+
+    song_tempo = float(SongSettings1.tempobpm)
+
+    if song_tempo <= 0:
+        raise ValueError("The MSM song contains an invalid tempo.")
+
+    midi.tempo_changes = [
+        miditoolkit.midi.containers.TempoChange(
+            tempo=song_tempo,
+            time=0
+        )
+    ]
+
+    midi.time_signature_changes = [
+        miditoolkit.midi.containers.TimeSignature(
+            numerator=SongSettings1.time_numerator,
+            denominator=SongSettings1.time_denominator,
+            time=0
+        )
+    ]
+
+    # Preserve the original song name.
+    midi.markers = []
+
+    # --------------------------------------------------
+    # NOTE DIVISION
+    # --------------------------------------------------
 
     if ntime_division is None:
 
@@ -349,9 +387,17 @@ def writeMidiFile2(
     else:
         note_division = ntime_division
 
-    print("MIDI: note division " + str(note_division))
+    if note_division <= 0:
+        raise ValueError("The calculated MIDI note division is invalid.")
 
-    # Each monster becomes its own MIDI instrument track.
+    print("MIDI tempo: {} BPM".format(song_tempo))
+    print("MIDI ticks per beat: {}".format(midi.ticks_per_beat))
+    print("MIDI note division: {}".format(note_division))
+
+    # --------------------------------------------------
+    # MONSTER TRACKS
+    # --------------------------------------------------
+
     for i, mlist in enumerate(MonstersList):
 
         monster = monsters_data[mlist.monster_id]
@@ -369,42 +415,15 @@ def writeMidiFile2(
             name=monster['name']
         )
 
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=102,
-                value=mlist.pos_x,
-                time=0
-            )
-        )
-
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=103,
-                value=mlist.pos_y,
-                time=0
-            )
-        )
-
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=104,
-                value=mlist.flip,
-                time=0
-            )
-        )
-
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=105,
-                value=mlist.muted,
-                time=0
-            )
-        )
-
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=7,
-                value=int(
+        # Monster positioning and playback settings.
+        control_values = [
+            (102, mlist.pos_x),
+            (103, mlist.pos_y),
+            (104, mlist.flip),
+            (105, mlist.muted),
+            (
+                7,
+                int(
                     translateVolume(
                         mlist.volume,
                         float(0),
@@ -412,21 +431,24 @@ def writeMidiFile2(
                         0,
                         127
                     )
-                ),
-                time=0
-            )
-        )
+                )
+            ),
+            (0, monster['midi_bank_select_msb'])
+        ]
 
-        track.control_changes.append(
-            miditoolkit.midi.containers.ControlChange(
-                number=0,
-                value=monster['midi_bank_select_msb'],
-                time=0
+        for number, value in control_values:
+
+            track.control_changes.append(
+                miditoolkit.midi.containers.ControlChange(
+                    number=number,
+                    value=value,
+                    time=0
+                )
             )
-        )
 
         midi.instruments.append(track)
 
+        # Find the MSM track assigned to this monster.
         for ttdata in TracksList:
 
             if mlist.dst_user_track_id == ttdata.dst_user_track_id:
@@ -437,21 +459,19 @@ def writeMidiFile2(
                     ttdata.times
                 ):
 
-                    delta_note_start = xpos * note_division
-
-                    delta_note_stop = (
-                        xpos * note_division
-                    ) + (
-                        xlen * note_division
-                    )
+                    # Convert MSM grid positions into MIDI ticks.
+                    start_time = xpos * note_division
+                    end_time = (xpos + xlen) * note_division
 
                     try:
 
+                        pitch = msm_to_midi_note[xnote]
+
                         note = miditoolkit.midi.containers.Note(
                             velocity=100,
-                            pitch=msm_to_midi_note[xnote],
-                            start=delta_note_start,
-                            end=delta_note_stop
+                            pitch=pitch,
+                            start=start_time,
+                            end=end_time
                         )
 
                         track.notes.append(note)
@@ -459,8 +479,8 @@ def writeMidiFile2(
                     except KeyError as e:
 
                         print(
-                            "Detected key out of range {} at Track {}: {}. "
-                            "Skipping Note".format(
+                            "Detected unsupported note {} "
+                            "on track {}: {}. Skipping note.".format(
                                 e,
                                 i,
                                 monster['name']
@@ -469,7 +489,14 @@ def writeMidiFile2(
 
                 break
 
+    # --------------------------------------------------
+    # WRITE MIDI
+    # --------------------------------------------------
+
     midi.dump(target_filename)
+
+    print("MIDI export complete: " + target_filename)
+    print("Exported tempo: {} BPM".format(song_tempo))
 
 
 # --------------------------------------------------
@@ -520,6 +547,10 @@ def testXmlFile(
 
     if monsterstrackassign is None:
         raise ValueError("The MSM file does not contain track assignments.")
+
+    # --------------------------------------------------
+    # READ MONSTERS
+    # --------------------------------------------------
 
     for child in monstersarray:
 
@@ -578,6 +609,10 @@ def testXmlFile(
                 break
 
         MonstersList.append(tmpMonster)
+
+    # --------------------------------------------------
+    # READ TRACK DATA
+    # --------------------------------------------------
 
     trackdata = root[1]
 
@@ -661,8 +696,7 @@ def decompress_data(
     if not rawdata:
         raise ValueError("The selected MSM file is empty.")
 
-    # The original format stores a trailing null byte.
-    # Try increasing uncompressed sizes, but do not loop forever.
+    # Preserve the existing MSM decompression behavior.
     max_extra_size = max(1024 * 1024, len(rawdata) * 20)
 
     decompressed_data = None
@@ -742,15 +776,17 @@ def convert_msm_to_midi(
     if division is not None and division <= 0:
         raise ValueError("Division must be greater than zero.")
 
-    # Reset state before each conversion.
+    # Reset conversion data before each conversion.
     MonstersList = []
     TracksList = []
+
     SongSettings1 = SongSettings(
         4,
         4,
         120,
         "Song"
     )
+
     d_data = b""
 
     # Decompress the MSM file.
@@ -763,9 +799,13 @@ def convert_msm_to_midi(
 
     # Parse the XML.
     try:
-        root = ET.fromstring(d_data.decode("utf-8"))
+
+        root = ET.fromstring(
+            d_data.decode("utf-8")
+        )
 
     except Exception as exc:
+
         raise ValueError(
             "Invalid MSM composition XML: " + str(exc)
         )
@@ -830,7 +870,7 @@ def main():
         '--skip-time-signature',
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Skip tempo signature (default 4/4)"
+        help="Skip time signature (default 4/4)"
     )
 
     parser.add_argument(
