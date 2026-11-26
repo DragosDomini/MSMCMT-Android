@@ -57,20 +57,23 @@ class MainActivity : ComponentActivity() {
     private lateinit var conversionProgress: ProgressBar
     private lateinit var exportMsmButton: Button
 
-    // MSM-inspired typography.
-    private val headingTypeface by lazy {
-        loadTypeface(
-            "fonts/Singing_Monstrous.ttf",
-            Typeface.DEFAULT_BOLD
-        )
-    }
+    
+// MainMSM font for headings and titles.
+private val headingTypeface by lazy {
+    loadTypeface(
+        "fonts/OpenDyslexic-Bold.ttf",
+        Typeface.DEFAULT_BOLD
+    )
+}
 
-    private val bodyTypeface by lazy {
-        loadTypeface(
-            "fonts/Fredoka-VariableFont_wdth,wght.ttf",
-            Typeface.DEFAULT
-        )
-    }
+// Cooper font for interface text and buttons.
+private val bodyTypeface by lazy {
+    loadTypeface(
+        "fonts/Hobeaux-Bold.otf",
+        Typeface.DEFAULT
+    )
+}
+
 
     private val backgroundColor = Color.rgb(29, 40, 43)
     private val cardColor = Color.rgb(47, 64, 66)
