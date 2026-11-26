@@ -34,20 +34,26 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MSMConverter"
     }
 
+    // --------------------------------------------------
+    // APPLICATION STATE
+    // --------------------------------------------------
+
     private var parsedMidi: ParsedMidi? = null
     private var midiUri: Uri? = null
     private var pendingMidiFile: File? = null
     private var pendingMsmBytes: ByteArray? = null
     private var assignmentsValidated = false
 
-    // Assigned parts start collapsed; the user can expand any part.
     private val expandedTrackCards = mutableSetOf<Int>()
 
-    // Each MIDI part receives its own monster assignment.
     private val assignments = mutableMapOf<Int, String>()
 
     private val selectedResults =
         mutableMapOf<Int, MonsterCompatibility>()
+
+    // --------------------------------------------------
+    // UI REFERENCES
+    // --------------------------------------------------
 
     private lateinit var statusText: TextView
     private lateinit var songInfoText: TextView
@@ -57,31 +63,45 @@ class MainActivity : ComponentActivity() {
     private lateinit var conversionProgress: ProgressBar
     private lateinit var exportMsmButton: Button
 
-    
-// MainMSM font for headings and titles.
-private val headingTypeface by lazy {
-    loadTypeface(
-        "fonts/OpenDyslexic-Bold.ttf",
-        Typeface.DEFAULT_BOLD
-    )
-}
+    // --------------------------------------------------
+    // MSM THEME
+    // --------------------------------------------------
 
-// Cooper font for interface text and buttons.
-private val bodyTypeface by lazy {
-    loadTypeface(
-        "fonts/Hobeaux-Bold.otf",
-        Typeface.DEFAULT
-    )
-}
+    // Preserve the existing project fonts.
+    private val headingTypeface by lazy {
+        loadTypeface(
+            "fonts/OpenDyslexic-Bold.ttf",
+            Typeface.DEFAULT_BOLD
+        )
+    }
 
+    private val bodyTypeface by lazy {
+        loadTypeface(
+            "fonts/Hobeaux-Bold.otf",
+            Typeface.DEFAULT
+        )
+    }
 
-    private val backgroundColor = Color.rgb(29, 40, 43)
-    private val cardColor = Color.rgb(47, 64, 66)
-    private val accentColor = Color.rgb(116, 207, 173)
-    private val textColor = Color.BLACK
-    private val mutedColor = Color.rgb(185, 201, 198)
+    // Main theme colors.
+    private val backgroundColor = Color.rgb(18, 25, 29)
+    private val cardColor = Color.rgb(20, 25, 27)
 
-    // MIDI → MSM input.
+    // Bright mint accent.
+    private val accentColor = Color.rgb(91, 218, 174)
+
+    // IMPORTANT:
+    // The previous version used Color.BLACK for card text.
+    // This made text invisible against the black MSM panels.
+    private val textColor = Color.WHITE
+
+    private val mutedColor = Color.rgb(226, 236, 232)
+
+    private val shadowColor = Color.BLACK
+
+    // --------------------------------------------------
+    // FILE PICKERS
+    // --------------------------------------------------
+
     private val midiPicker =
         registerForActivityResult(
             ActivityResultContracts.OpenDocument()
@@ -92,7 +112,6 @@ private val bodyTypeface by lazy {
             }
         }
 
-    // MSM → MIDI input.
     private val msmPicker =
         registerForActivityResult(
             ActivityResultContracts.OpenDocument()
@@ -102,7 +121,6 @@ private val bodyTypeface by lazy {
             }
         }
 
-    // Destination for converted MSM.
     private val msmSavePicker =
         registerForActivityResult(
             ActivityResultContracts.CreateDocument(
@@ -117,7 +135,6 @@ private val bodyTypeface by lazy {
             }
         }
 
-    // Destination for converted MIDI.
     private val midiSavePicker =
         registerForActivityResult(
             ActivityResultContracts.CreateDocument("audio/midi")
@@ -128,6 +145,10 @@ private val bodyTypeface by lazy {
                 msmStatusText.text = "MIDI export cancelled."
             }
         }
+
+    // --------------------------------------------------
+    // ACTIVITY
+    // --------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,42 +163,106 @@ private val bodyTypeface by lazy {
 
     private fun buildInterface() {
 
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply {
+            fillViewport = true
+            isVerticalScrollBarEnabled = false
+            setBackgroundColor(backgroundColor)
+        }
 
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(18, 20, 18, 30)
 
-            background = assetDrawable("images/background.jpg")
-                ?.apply {
-                    gravity = Gravity.FILL
-                    alpha = 105
-                }
-                ?: ColorDrawable(backgroundColor)
+            setPadding(
+                18,
+                20,
+                18,
+                30
+            )
+
+            // Keep the original MSM background,
+            // but darken it so text is easier to read.
+            background = LayerDrawable(
+                arrayOf(
+                    assetDrawable("images/background.jpg")
+                        ?.apply {
+                            gravity = Gravity.FILL
+                            alpha = 165
+                        } ?: ColorDrawable(backgroundColor),
+
+                    ColorDrawable(
+                        Color.argb(
+                            105,
+                            8,
+                            13,
+                            17
+                        )
+                    )
+                )
+            )
         }
 
+        // --------------------------------------------------
+        // HEADER
+        // --------------------------------------------------
+
         val header = TextView(this).apply {
+
             text = "MSM CONVERTER"
-            textSize = 28f
+            textSize = 30f
             typeface = headingTypeface
+
             setTextColor(accentColor)
+
             gravity = Gravity.CENTER
-            setPadding(0, 16, 0, 6)
+
+            setShadowLayer(
+                2f,
+                0f,
+                2f,
+                shadowColor
+            )
+
+            setPadding(
+                0,
+                16,
+                0,
+                8
+            )
         }
 
         val subtitle = TextView(this).apply {
+
             text = "My Singing Monsters composition converter"
-            textSize = 14f
+
+            textSize = 16f
             typeface = bodyTypeface
+
             setTextColor(mutedColor)
+
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 24)
+
+            setShadowLayer(
+                2f,
+                0f,
+                1f,
+                shadowColor
+            )
+
+            setPadding(
+                4,
+                0,
+                4,
+                26
+            )
         }
 
         content.addView(header)
         content.addView(subtitle)
 
-        // MSM → MIDI section.
+        // --------------------------------------------------
+        // MSM → MIDI
+        // --------------------------------------------------
+
         content.addView(section("MSM → MIDI"))
 
         content.addView(
@@ -195,11 +280,15 @@ private val bodyTypeface by lazy {
         conversionProgress = createAssetProgressBar()
         content.addView(conversionProgress)
 
-        // MIDI → MSM section.
+        // --------------------------------------------------
+        // MIDI → MSM
+        // --------------------------------------------------
+
         content.addView(section("MIDI → MSM"))
 
         content.addView(
             createButton("Import MIDI composition") {
+
                 midiPicker.launch(
                     arrayOf(
                         "audio/midi",
@@ -222,18 +311,41 @@ private val bodyTypeface by lazy {
 
         content.addView(songInfoText)
 
-        content.addView(section("MONSTER ASSIGNMENTS"))
+        // --------------------------------------------------
+        // MONSTER ASSIGNMENTS
+        // --------------------------------------------------
+
+        content.addView(
+            section("MONSTER ASSIGNMENTS")
+        )
 
         val explanation = TextView(this).apply {
+
             text =
                 "Each MIDI part is analyzed independently. " +
                 "If its assigned monster cannot play the entire " +
                 "part, alternative monsters are recommended."
 
-            textSize = 13f
+            textSize = 15f
             typeface = bodyTypeface
-            setTextColor(mutedColor)
-            setPadding(4, 4, 4, 14)
+
+            setTextColor(Color.WHITE)
+
+            setShadowLayer(
+                1.5f,
+                0f,
+                1f,
+                shadowColor
+            )
+
+            setLineSpacing(3f, 1.05f)
+
+            setPadding(
+                8,
+                8,
+                8,
+                18
+            )
         }
 
         content.addView(explanation)
@@ -244,7 +356,10 @@ private val bodyTypeface by lazy {
 
         content.addView(trackContainer)
 
-        // Conversion controls.
+        // --------------------------------------------------
+        // CONVERSION
+        // --------------------------------------------------
+
         content.addView(section("CONVERSION"))
 
         content.addView(
@@ -256,6 +371,7 @@ private val bodyTypeface by lazy {
         exportMsmButton = createButton("Export MIDI → MSM") {
             exportMidiToMsm()
         }.apply {
+
             isEnabled = false
             alpha = 0.55f
         }
@@ -269,6 +385,7 @@ private val bodyTypeface by lazy {
         )
 
         scroll.addView(content)
+
         setContentView(scroll)
     }
 
@@ -279,6 +396,7 @@ private val bodyTypeface by lazy {
     private fun loadDatabase() {
 
         try {
+
             val monsters = MonsterMapping.load(this)
 
             if (monsters.isEmpty()) {
@@ -316,7 +434,9 @@ private val bodyTypeface by lazy {
         conversionProgress.progress = 8
 
         Thread {
+
             try {
+
                 val inputFile = File(
                     cacheDir,
                     "msmcmt_input.msm"
@@ -327,11 +447,12 @@ private val bodyTypeface by lazy {
                     "msmcmt_converted.mid"
                 )
 
-                // Copy selected document into app cache.
                 contentResolver.openInputStream(uri)?.use { input ->
+
                     inputFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
+
                 } ?: throw IllegalStateException(
                     "Unable to open the selected MSM file."
                 )
@@ -343,21 +464,20 @@ private val bodyTypeface by lazy {
                 }
 
                 runOnUiThread {
+
                     conversionProgress.progress = 35
+
                     msmStatusText.text =
                         "Converting MSM composition..."
                 }
 
-                // Start Python runtime if it is not already running.
                 if (!Python.isStarted()) {
                     Python.start(AndroidPlatform(this))
                 }
 
-                // Import the unified Python converter.
                 val converter = Python.getInstance()
                     .getModule("msmconverter")
 
-                // Call the Android-safe conversion function.
                 converter.callAttr(
                     "convert_msm_to_midi",
                     inputFile.absolutePath,
@@ -375,7 +495,9 @@ private val bodyTypeface by lazy {
                 }
 
                 runOnUiThread {
+
                     conversionProgress.progress = 100
+
                     pendingMidiFile = outputFile
 
                     msmStatusText.text =
@@ -393,6 +515,7 @@ private val bodyTypeface by lazy {
                 Log.e(TAG, "MSM to MIDI conversion failed", e)
 
                 runOnUiThread {
+
                     conversionProgress.visibility = View.GONE
 
                     msmStatusText.text =
@@ -404,6 +527,7 @@ private val bodyTypeface by lazy {
                     )
                 }
             }
+
         }.start()
     }
 
@@ -416,16 +540,21 @@ private val bodyTypeface by lazy {
         val source = pendingMidiFile
 
         if (source == null || !source.exists()) {
+
             msmStatusText.text =
                 "No converted MIDI file is waiting to be saved."
+
             return
         }
 
         try {
+
             contentResolver.openOutputStream(uri)?.use { output ->
+
                 source.inputStream().use { input ->
                     input.copyTo(output)
                 }
+
             } ?: throw IllegalStateException(
                 "Unable to create the destination MIDI file."
             )
@@ -462,23 +591,25 @@ private val bodyTypeface by lazy {
         val midi = parsedMidi
 
         if (midi == null) {
+
             showMessage(
                 "No composition",
                 "Import a MIDI file first."
             )
+
             return
         }
 
         if (!assignmentsValidated) {
+
             showMessage(
                 "Validation required",
                 "Validate all monster assignments before exporting."
             )
+
             return
         }
 
-        // Convert the selected monster IDs to integers
-        // for MsmConverter's expected assignment map.
         val assignmentIds = assignments.mapNotNull {
             (trackIndex, monsterId) ->
 
@@ -495,6 +626,7 @@ private val bodyTypeface by lazy {
         exportMsmButton.isEnabled = false
 
         Thread {
+
             try {
 
                 val output = MsmConverter.convert(
@@ -554,6 +686,7 @@ private val bodyTypeface by lazy {
                     )
                 }
             }
+
         }.start()
     }
 
@@ -566,16 +699,20 @@ private val bodyTypeface by lazy {
         val bytes = pendingMsmBytes
 
         if (bytes == null || bytes.isEmpty()) {
+
             statusText.text =
                 "No converted MSM file is waiting to be saved."
+
             return
         }
 
         try {
 
             contentResolver.openOutputStream(uri)?.use { output ->
+
                 output.write(bytes)
                 output.flush()
+
             } ?: throw IllegalStateException(
                 "Unable to create the destination MSM file."
             )
@@ -611,10 +748,12 @@ private val bodyTypeface by lazy {
         try {
 
             try {
+
                 contentResolver.takePersistableUriPermission(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
+
             } catch (_: Exception) {
                 // Temporary access is sufficient for this import.
             }
@@ -641,6 +780,7 @@ private val bodyTypeface by lazy {
             expandedTrackCards.clear()
 
             assignmentsValidated = false
+
             exportMsmButton.isEnabled = false
             exportMsmButton.alpha = 0.55f
 
@@ -648,14 +788,18 @@ private val bodyTypeface by lazy {
                 "MIDI imported successfully."
 
             songInfoText.text = buildString {
+
                 append("Song: ${result.songName}\n")
                 append("Tempo: ${result.tempo} BPM\n")
+
                 append(
                     "Time signature: " +
                     "${result.timeNumerator}/" +
                     "${result.timeDenominator}\n"
                 )
+
                 append("MIDI parts: ${result.tracks.size}\n")
+
                 append(
                     "Notes: ${result.tracks.sumOf { it.notes.size }}"
                 )
@@ -674,6 +818,7 @@ private val bodyTypeface by lazy {
             expandedTrackCards.clear()
 
             assignmentsValidated = false
+
             exportMsmButton.isEnabled = false
             exportMsmButton.alpha = 0.55f
 
@@ -730,12 +875,14 @@ private val bodyTypeface by lazy {
                             )
 
                         if (alternatives.isNotEmpty()) {
+
                             addTrackCard(
                                 index,
                                 track,
                                 result,
                                 alternatives
                             )
+
                             return@forEachIndexed
                         }
                     }
@@ -773,6 +920,7 @@ private val bodyTypeface by lazy {
         }
 
         if (trackContainer.childCount == 0) {
+
             trackContainer.addView(
                 createCardText(
                     "No pitched notes were found in the MIDI parts."
@@ -795,8 +943,6 @@ private val bodyTypeface by lazy {
 
         val card = createCard()
 
-        // Once a monster is assigned, collapse the card
-        // unless the user explicitly expands it.
         val isCollapsed =
             assignments.containsKey(index) &&
             index !in expandedTrackCards
@@ -819,6 +965,7 @@ private val bodyTypeface by lazy {
 
             card.addView(
                 createButton("Expand part details") {
+
                     expandedTrackCards.add(index)
                     analyzeAllTracks()
                 }
@@ -850,6 +997,7 @@ private val bodyTypeface by lazy {
 
             card.addView(
                 createButton("Collapse part details") {
+
                     expandedTrackCards.remove(index)
                     analyzeAllTracks()
                 }
@@ -867,6 +1015,7 @@ private val bodyTypeface by lazy {
 
             card.addView(
                 createButton("Approve recommended monster") {
+
                     requestAssignmentApproval(
                         index,
                         result,
@@ -879,6 +1028,7 @@ private val bodyTypeface by lazy {
 
             card.addView(
                 createButton("Change monster") {
+
                     showMonsterPicker(index, track)
                 }
             )
@@ -893,11 +1043,18 @@ private val bodyTypeface by lazy {
             alternatives.take(5).forEachIndexed { rank, alternative ->
 
                 val alternativeCard = LinearLayout(this).apply {
+
                     orientation = LinearLayout.VERTICAL
-                    setPadding(12, 12, 12, 12)
+
+                    setPadding(
+                        14,
+                        14,
+                        14,
+                        14
+                    )
 
                     background = rounded(
-                        Color.rgb(58, 77, 78),
+                        Color.rgb(35, 51, 52),
                         12f
                     )
                 }
@@ -920,6 +1077,7 @@ private val bodyTypeface by lazy {
 
                 alternativeCard.addView(
                     createButton("Review this monster") {
+
                         requestAssignmentApproval(
                             index,
                             alternative
@@ -932,7 +1090,7 @@ private val bodyTypeface by lazy {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
 
-                params.bottomMargin = 10
+                params.bottomMargin = 12
 
                 card.addView(
                     alternativeCard,
@@ -943,6 +1101,10 @@ private val bodyTypeface by lazy {
 
         trackContainer.addView(card)
     }
+
+    // --------------------------------------------------
+    // NO MATCH CARD
+    // --------------------------------------------------
 
     private fun addNoMatchCard(
         index: Int,
@@ -966,6 +1128,7 @@ private val bodyTypeface by lazy {
 
         card.addView(
             createButton("Choose monster manually") {
+
                 parsedMidi?.tracks?.getOrNull(index)?.let {
                     showMonsterPicker(index, it)
                 }
@@ -984,8 +1147,15 @@ private val bodyTypeface by lazy {
     ): View {
 
         val container = LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
-            setPadding(12, 12, 12, 12)
+
+            setPadding(
+                14,
+                14,
+                14,
+                14
+            )
 
             background = rounded(
                 when {
@@ -1003,6 +1173,7 @@ private val bodyTypeface by lazy {
         }
 
         val heading = TextView(this).apply {
+
             text = when {
                 result.accommodatesEntireTrack ->
                     "FULL TRACK COMPATIBILITY"
@@ -1014,19 +1185,38 @@ private val bodyTypeface by lazy {
                     "INCOMPATIBLE"
             }
 
-            textSize = 14f
+            textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
+
             setTextColor(Color.WHITE)
+
+            setShadowLayer(
+                1.5f,
+                0f,
+                1f,
+                shadowColor
+            )
         }
 
         val score = TextView(this).apply {
+
             text = "${result.score}%"
-            textSize = 25f
+
+            textSize = 28f
             typeface = Typeface.DEFAULT_BOLD
+
             setTextColor(Color.WHITE)
+
+            setShadowLayer(
+                2f,
+                0f,
+                1f,
+                shadowColor
+            )
         }
 
         val details = TextView(this).apply {
+
             text =
                 "${result.compatibleNotes}/${result.totalNotes} " +
                 "notes accommodated\n" +
@@ -1034,9 +1224,19 @@ private val bodyTypeface by lazy {
                 "Octave adjustment: ${result.octaveShift} semitones\n\n" +
                 result.explanation
 
-            textSize = 12f
+            textSize = 14f
             typeface = bodyTypeface
+
             setTextColor(Color.WHITE)
+
+            setLineSpacing(3f, 1.05f)
+
+            setShadowLayer(
+                1f,
+                0f,
+                1f,
+                shadowColor
+            )
         }
 
         container.addView(heading)
@@ -1058,21 +1258,26 @@ private val bodyTypeface by lazy {
         val monsters = MonsterMapping.getAllMonsters()
 
         if (monsters.isEmpty()) {
+
             showMessage(
                 "No monsters",
                 "The monster database is unavailable."
             )
+
             return
         }
 
         val pitches = track.notes.map { it.pitch }
 
         val ranked = monsters.map { monster ->
+
             MonsterMapping.analyzeCompatibility(
                 monster,
                 pitches
             )
+
         }.sortedWith(
+
             compareByDescending<MonsterCompatibility> {
                 it.accommodatesEntireTrack
             }.thenByDescending {
@@ -1089,6 +1294,7 @@ private val bodyTypeface by lazy {
         AlertDialog.Builder(this)
             .setTitle("Choose monster for ${track.name}")
             .setItems(labels) { _, position ->
+
                 requestAssignmentApproval(
                     trackIndex,
                     ranked[position]
@@ -1116,6 +1322,7 @@ private val bodyTypeface by lazy {
         } ?: "Unassigned"
 
         val warning = when {
+
             result.accommodatesEntireTrack ->
                 "All notes fit this monster."
 
@@ -1127,6 +1334,7 @@ private val bodyTypeface by lazy {
         }
 
         val message = buildString {
+
             append("Current assignment: $currentName\n\n")
             append("Proposed monster: ${result.monster.name}\n")
             append("Compatibility: ${result.score}%\n")
@@ -1167,11 +1375,10 @@ private val bodyTypeface by lazy {
 
                 assignments[trackIndex] = monsterId
 
-                // Collapse the selected part automatically.
                 expandedTrackCards.remove(trackIndex)
 
-                // A changed assignment requires new validation.
                 assignmentsValidated = false
+
                 exportMsmButton.isEnabled = false
                 exportMsmButton.alpha = 0.55f
 
@@ -1195,10 +1402,12 @@ private val bodyTypeface by lazy {
         val midi = parsedMidi
 
         if (midi == null) {
+
             showMessage(
                 "No composition",
                 "Import a MIDI file first."
             )
+
             return
         }
 
@@ -1215,14 +1424,18 @@ private val bodyTypeface by lazy {
             val monsterId = assignments[index]
 
             if (monsterId == null) {
+
                 missing.add(track.name)
+
                 return@forEachIndexed
             }
 
             val monster = MonsterMapping.getMonster(monsterId)
 
             if (monster == null) {
+
                 missing.add(track.name)
+
                 return@forEachIndexed
             }
 
@@ -1232,8 +1445,11 @@ private val bodyTypeface by lazy {
             )
 
             if (result.score >= minimumCompatibility) {
+
                 passed.add("${track.name}: ${result.score}%")
+
             } else {
+
                 belowThreshold.add("${track.name}: ${result.score}%")
             }
         }
@@ -1252,34 +1468,43 @@ private val bodyTypeface by lazy {
             append("Parts passing: ${passed.size}\n\n")
 
             if (missing.isNotEmpty()) {
+
                 append("Unassigned parts:\n")
+
                 missing.forEach {
                     append("- $it\n")
                 }
+
                 append("\n")
             }
 
             if (belowThreshold.isNotEmpty()) {
+
                 append("Parts below 70%:\n")
+
                 belowThreshold.forEach {
                     append("- $it\n")
                 }
+
                 append("\n")
             }
 
             if (allPartsPassed) {
+
                 append("All parts meet the requirement.\n")
+
                 append(
                     "The composition is approved to proceed to conversion."
                 )
+
             } else {
+
                 append(
                     "Conversion remains locked until every part passes."
                 )
             }
         }
 
-        // Enable export only after successful validation.
         assignmentsValidated = allPartsPassed
 
         exportMsmButton.isEnabled = allPartsPassed
@@ -1333,10 +1558,12 @@ private val bodyTypeface by lazy {
     ): Typeface {
 
         return try {
+
             Typeface.createFromAsset(
                 assets,
                 path
             )
+
         } catch (e: Exception) {
 
             Log.w(
@@ -1367,6 +1594,7 @@ private val bodyTypeface by lazy {
 
             progressDrawable = LayerDrawable(
                 arrayOf(
+
                     assetDrawable("images/loadbar_bg.png")
                         ?: ColorDrawable(cardColor),
 
@@ -1412,7 +1640,13 @@ private val bodyTypeface by lazy {
         LinearLayout(this).apply {
 
             orientation = LinearLayout.VERTICAL
-            setPadding(15, 15, 15, 15)
+
+            setPadding(
+                18,
+                18,
+                18,
+                18
+            )
 
             background = assetDrawable("images/panel.png")
                 ?.apply {
@@ -1430,17 +1664,40 @@ private val bodyTypeface by lazy {
             layoutParams = params
         }
 
+    // --------------------------------------------------
+    // SECTION HEADINGS
+    // --------------------------------------------------
+
     private fun section(
         title: String
     ): TextView =
         TextView(this).apply {
 
             text = title
-            textSize = 15f
+
+            textSize = 17f
             typeface = headingTypeface
+
             setTextColor(accentColor)
-            setPadding(0, 18, 0, 10)
+
+            setShadowLayer(
+                2f,
+                0f,
+                2f,
+                shadowColor
+            )
+
+            setPadding(
+                0,
+                20,
+                0,
+                12
+            )
         }
+
+    // --------------------------------------------------
+    // CARD HEADINGS
+    // --------------------------------------------------
 
     private fun cardHeading(
         title: String
@@ -1448,11 +1705,30 @@ private val bodyTypeface by lazy {
         TextView(this).apply {
 
             text = title
-            textSize = 17f
+
+            textSize = 19f
             typeface = headingTypeface
+
             setTextColor(textColor)
-            setPadding(0, 4, 0, 10)
+
+            setShadowLayer(
+                2f,
+                0f,
+                2f,
+                shadowColor
+            )
+
+            setPadding(
+                0,
+                6,
+                0,
+                12
+            )
         }
+
+    // --------------------------------------------------
+    // DESCRIPTION TEXT
+    // --------------------------------------------------
 
     private fun detailText(
         value: String
@@ -1460,11 +1736,35 @@ private val bodyTypeface by lazy {
         TextView(this).apply {
 
             text = value
-            textSize = 13f
+
+            textSize = 15f
             typeface = bodyTypeface
+
             setTextColor(mutedColor)
-            setPadding(0, 6, 0, 12)
+
+            setShadowLayer(
+                1.5f,
+                0f,
+                1f,
+                shadowColor
+            )
+
+            setLineSpacing(
+                3f,
+                1.05f
+            )
+
+            setPadding(
+                0,
+                8,
+                0,
+                14
+            )
         }
+
+    // --------------------------------------------------
+    // STATUS / INFORMATION PANELS
+    // --------------------------------------------------
 
     private fun createCardText(
         value: String
@@ -1472,10 +1772,31 @@ private val bodyTypeface by lazy {
         TextView(this).apply {
 
             text = value
-            textSize = 14f
+
+            textSize = 16f
             typeface = bodyTypeface
-            setTextColor(textColor)
-            setPadding(14, 14, 14, 14)
+
+            // White text instead of the old black text.
+            setTextColor(Color.WHITE)
+
+            setShadowLayer(
+                1.5f,
+                0f,
+                1f,
+                shadowColor
+            )
+
+            setLineSpacing(
+                3f,
+                1.05f
+            )
+
+            setPadding(
+                18,
+                18,
+                18,
+                18
+            )
 
             background = assetDrawable("images/panel.png")
                 ?.apply {
@@ -1495,9 +1816,20 @@ private val bodyTypeface by lazy {
         Button(this).apply {
 
             text = title
+
             isAllCaps = false
+
+            textSize = 17f
             typeface = bodyTypeface
+
             setTextColor(Color.WHITE)
+
+            setShadowLayer(
+                1f,
+                0f,
+                1f,
+                shadowColor
+            )
 
             background = assetDrawable("images/button_base.png")
                 ?.apply {
@@ -1505,7 +1837,14 @@ private val bodyTypeface by lazy {
                 }
                 ?: rounded(accentColor, 12f)
 
-            setPadding(14, 10, 14, 10)
+            setPadding(
+                16,
+                12,
+                16,
+                12
+            )
+
+            minHeight = 58
 
             setOnClickListener {
                 action()
@@ -1516,7 +1855,7 @@ private val bodyTypeface by lazy {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
 
-            params.bottomMargin = 9
+            params.bottomMargin = 12
 
             layoutParams = params
         }
@@ -1529,19 +1868,34 @@ private val bodyTypeface by lazy {
         color: Int,
         radius: Float
     ) = GradientDrawable().apply {
+
         setColor(color)
         cornerRadius = radius
     }
+
+    // --------------------------------------------------
+    // DIALOGS
+    // --------------------------------------------------
 
     private fun showMessage(
         title: String,
         message: String
     ) {
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                ?.setTextColor(
+                    Color.rgb(75, 190, 150)
+                )
+        }
+
+        dialog.show()
     }
 }
