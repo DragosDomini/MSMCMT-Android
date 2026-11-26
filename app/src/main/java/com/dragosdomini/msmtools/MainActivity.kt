@@ -78,7 +78,7 @@ private val bodyTypeface by lazy {
     private val backgroundColor = Color.rgb(29, 40, 43)
     private val cardColor = Color.rgb(47, 64, 66)
     private val accentColor = Color.rgb(116, 207, 173)
-    private val textColor = Color.WHITE
+    private val textColor = Color.BLACK
     private val mutedColor = Color.rgb(185, 201, 198)
 
     // MIDI → MSM input.
