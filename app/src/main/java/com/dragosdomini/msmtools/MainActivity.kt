@@ -3,9 +3,14 @@ package com.cyndyrfyrestudios.msmcmt
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -13,6 +18,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -31,6 +37,11 @@ class MainActivity : ComponentActivity() {
     private var parsedMidi: ParsedMidi? = null
     private var midiUri: Uri? = null
     private var pendingMidiFile: File? = null
+    private var pendingMsmBytes: ByteArray? = null
+    private var assignmentsValidated = false
+
+    // Assigned parts start collapsed; the user can expand any part.
+    private val expandedTrackCards = mutableSetOf<Int>()
 
     // Each MIDI part receives its own monster assignment.
     private val assignments = mutableMapOf<Int, String>()
@@ -43,6 +54,23 @@ class MainActivity : ComponentActivity() {
     private lateinit var trackContainer: LinearLayout
     private lateinit var content: LinearLayout
     private lateinit var msmStatusText: TextView
+    private lateinit var conversionProgress: ProgressBar
+    private lateinit var exportMsmButton: Button
+
+    // MSM-inspired typography.
+    private val headingTypeface by lazy {
+        loadTypeface(
+            "fonts/Singing_Monstrous.ttf",
+            Typeface.DEFAULT_BOLD
+        )
+    }
+
+    private val bodyTypeface by lazy {
+        loadTypeface(
+            "fonts/Fredoka-VariableFont_wdth,wght.ttf",
+            Typeface.DEFAULT
+        )
+    }
 
     private val backgroundColor = Color.rgb(29, 40, 43)
     private val cardColor = Color.rgb(47, 64, 66)
@@ -68,6 +96,21 @@ class MainActivity : ComponentActivity() {
         ) { uri ->
             if (uri != null) {
                 convertSelectedMsm(uri)
+            }
+        }
+
+    // Destination for converted MSM.
+    private val msmSavePicker =
+        registerForActivityResult(
+            ActivityResultContracts.CreateDocument(
+                "application/octet-stream"
+            )
+        ) { uri ->
+            if (uri != null) {
+                saveConvertedMsm(uri)
+            } else {
+                statusText.text = "MSM export cancelled."
+                conversionProgress.visibility = View.GONE
             }
         }
 
@@ -101,13 +144,19 @@ class MainActivity : ComponentActivity() {
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(18, 20, 18, 30)
-            setBackgroundColor(backgroundColor)
+
+            background = assetDrawable("images/background.jpg")
+                ?.apply {
+                    gravity = Gravity.FILL
+                    alpha = 105
+                }
+                ?: ColorDrawable(backgroundColor)
         }
 
         val header = TextView(this).apply {
             text = "MSM CONVERTER"
             textSize = 28f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = headingTypeface
             setTextColor(accentColor)
             gravity = Gravity.CENTER
             setPadding(0, 16, 0, 6)
@@ -116,6 +165,7 @@ class MainActivity : ComponentActivity() {
         val subtitle = TextView(this).apply {
             text = "My Singing Monsters composition converter"
             textSize = 14f
+            typeface = bodyTypeface
             setTextColor(mutedColor)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, 24)
@@ -128,7 +178,7 @@ class MainActivity : ComponentActivity() {
         content.addView(section("MSM → MIDI"))
 
         content.addView(
-            createButton("Import MSM composition") {
+            createButton("Export MSM → MIDI") {
                 msmPicker.launch(arrayOf("*/*"))
             }
         )
@@ -136,7 +186,11 @@ class MainActivity : ComponentActivity() {
         msmStatusText = createCardText(
             "Choose an MSM composition to convert it into a MIDI file."
         )
+
         content.addView(msmStatusText)
+
+        conversionProgress = createAssetProgressBar()
+        content.addView(conversionProgress)
 
         // MIDI → MSM section.
         content.addView(section("MIDI → MSM"))
@@ -156,11 +210,13 @@ class MainActivity : ComponentActivity() {
         statusText = createCardText(
             "Waiting for a MIDI composition."
         )
+
         content.addView(statusText)
 
         songInfoText = createCardText(
             "Song information will appear here."
         )
+
         content.addView(songInfoText)
 
         content.addView(section("MONSTER ASSIGNMENTS"))
@@ -170,7 +226,9 @@ class MainActivity : ComponentActivity() {
                 "Each MIDI part is analyzed independently. " +
                 "If its assigned monster cannot play the entire " +
                 "part, alternative monsters are recommended."
+
             textSize = 13f
+            typeface = bodyTypeface
             setTextColor(mutedColor)
             setPadding(4, 4, 4, 14)
         }
@@ -183,6 +241,7 @@ class MainActivity : ComponentActivity() {
 
         content.addView(trackContainer)
 
+        // Conversion controls.
         content.addView(section("CONVERSION"))
 
         content.addView(
@@ -190,6 +249,15 @@ class MainActivity : ComponentActivity() {
                 validateAllAssignments()
             }
         )
+
+        exportMsmButton = createButton("Export MIDI → MSM") {
+            exportMidiToMsm()
+        }.apply {
+            isEnabled = false
+            alpha = 0.55f
+        }
+
+        content.addView(exportMsmButton)
 
         content.addView(
             createButton("Refresh recommendations") {
@@ -241,10 +309,20 @@ class MainActivity : ComponentActivity() {
 
         msmStatusText.text = "Reading MSM composition..."
 
+        conversionProgress.visibility = View.VISIBLE
+        conversionProgress.progress = 8
+
         Thread {
             try {
-                val inputFile = File(cacheDir, "msmcmt_input.msm")
-                val outputFile = File(cacheDir, "msmcmt_converted.mid")
+                val inputFile = File(
+                    cacheDir,
+                    "msmcmt_input.msm"
+                )
+
+                val outputFile = File(
+                    cacheDir,
+                    "msmcmt_converted.mid"
+                )
 
                 // Copy selected document into app cache.
                 contentResolver.openInputStream(uri)?.use { input ->
@@ -259,6 +337,12 @@ class MainActivity : ComponentActivity() {
                     throw IllegalArgumentException(
                         "The selected MSM file is empty."
                     )
+                }
+
+                runOnUiThread {
+                    conversionProgress.progress = 35
+                    msmStatusText.text =
+                        "Converting MSM composition..."
                 }
 
                 // Start Python runtime if it is not already running.
@@ -288,10 +372,13 @@ class MainActivity : ComponentActivity() {
                 }
 
                 runOnUiThread {
+                    conversionProgress.progress = 100
                     pendingMidiFile = outputFile
 
                     msmStatusText.text =
                         "Conversion complete. Choose where to save your MIDI."
+
+                    conversionProgress.visibility = View.GONE
 
                     midiSavePicker.launch(
                         inputFile.nameWithoutExtension + ".mid"
@@ -303,6 +390,8 @@ class MainActivity : ComponentActivity() {
                 Log.e(TAG, "MSM to MIDI conversion failed", e)
 
                 runOnUiThread {
+                    conversionProgress.visibility = View.GONE
+
                     msmStatusText.text =
                         "MSM conversion failed: ${e.message}"
 
@@ -316,7 +405,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // MIDI EXPORT
+    // MIDI SAVE
     // --------------------------------------------------
 
     private fun saveConvertedMidi(uri: Uri) {
@@ -362,6 +451,155 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
+    // MIDI → MSM EXPORT
+    // --------------------------------------------------
+
+    private fun exportMidiToMsm() {
+
+        val midi = parsedMidi
+
+        if (midi == null) {
+            showMessage(
+                "No composition",
+                "Import a MIDI file first."
+            )
+            return
+        }
+
+        if (!assignmentsValidated) {
+            showMessage(
+                "Validation required",
+                "Validate all monster assignments before exporting."
+            )
+            return
+        }
+
+        // Convert the selected monster IDs to integers
+        // for MsmConverter's expected assignment map.
+        val assignmentIds = assignments.mapNotNull {
+            (trackIndex, monsterId) ->
+
+            monsterId.toIntOrNull()?.let {
+                trackIndex to it
+            }
+        }.toMap()
+
+        statusText.text = "Preparing MSM composition..."
+
+        conversionProgress.visibility = View.VISIBLE
+        conversionProgress.progress = 15
+
+        exportMsmButton.isEnabled = false
+
+        Thread {
+            try {
+
+                val output = MsmConverter.convert(
+                    this,
+                    midi,
+                    8,
+                    assignmentIds
+                )
+
+                runOnUiThread {
+
+                    pendingMsmBytes = output
+
+                    conversionProgress.progress = 100
+                    conversionProgress.visibility = View.GONE
+
+                    statusText.text =
+                        "MSM composition ready. Choose where to save it."
+
+                    exportMsmButton.isEnabled = assignmentsValidated
+
+                    exportMsmButton.alpha =
+                        if (exportMsmButton.isEnabled) 1f else 0.55f
+
+                    val safeName = midi.songName
+                        .ifBlank { "MSM_Composition" }
+                        .replace(
+                            Regex("[^A-Za-z0-9 _-]"),
+                            "_"
+                        )
+                        .trim()
+                        .ifBlank { "MSM_Composition" }
+
+                    msmSavePicker.launch("$safeName.msm")
+                }
+
+            } catch (e: Exception) {
+
+                Log.e(TAG, "MIDI to MSM export failed", e)
+
+                runOnUiThread {
+
+                    conversionProgress.visibility = View.GONE
+
+                    exportMsmButton.isEnabled = assignmentsValidated
+
+                    exportMsmButton.alpha =
+                        if (exportMsmButton.isEnabled) 1f else 0.55f
+
+                    statusText.text =
+                        "MSM export failed: ${e.message}"
+
+                    showMessage(
+                        "MSM export error",
+                        e.message
+                            ?: "Unable to export this MIDI composition."
+                    )
+                }
+            }
+        }.start()
+    }
+
+    // --------------------------------------------------
+    // MSM SAVE
+    // --------------------------------------------------
+
+    private fun saveConvertedMsm(uri: Uri) {
+
+        val bytes = pendingMsmBytes
+
+        if (bytes == null || bytes.isEmpty()) {
+            statusText.text =
+                "No converted MSM file is waiting to be saved."
+            return
+        }
+
+        try {
+
+            contentResolver.openOutputStream(uri)?.use { output ->
+                output.write(bytes)
+                output.flush()
+            } ?: throw IllegalStateException(
+                "Unable to create the destination MSM file."
+            )
+
+            statusText.text = "MSM exported successfully."
+
+            Toast.makeText(
+                this,
+                "MSM composition saved.",
+                Toast.LENGTH_SHORT
+            ).show()
+
+        } catch (e: Exception) {
+
+            Log.e(TAG, "MSM save failed", e)
+
+            statusText.text =
+                "MSM save failed: ${e.message}"
+
+            showMessage(
+                "MSM save error",
+                e.message ?: "Unable to save the MSM file."
+            )
+        }
+    }
+
+    // --------------------------------------------------
     // MIDI IMPORT
     // --------------------------------------------------
 
@@ -397,6 +635,11 @@ class MainActivity : ComponentActivity() {
 
             assignments.clear()
             selectedResults.clear()
+            expandedTrackCards.clear()
+
+            assignmentsValidated = false
+            exportMsmButton.isEnabled = false
+            exportMsmButton.alpha = 0.55f
 
             statusText.text =
                 "MIDI imported successfully."
@@ -410,7 +653,9 @@ class MainActivity : ComponentActivity() {
                     "${result.timeDenominator}\n"
                 )
                 append("MIDI parts: ${result.tracks.size}\n")
-                append("Notes: ${result.tracks.sumOf { it.notes.size }}")
+                append(
+                    "Notes: ${result.tracks.sumOf { it.notes.size }}"
+                )
             }
 
             analyzeAllTracks()
@@ -420,8 +665,14 @@ class MainActivity : ComponentActivity() {
             Log.e(TAG, "MIDI import failed", e)
 
             parsedMidi = null
+
             assignments.clear()
             selectedResults.clear()
+            expandedTrackCards.clear()
+
+            assignmentsValidated = false
+            exportMsmButton.isEnabled = false
+            exportMsmButton.alpha = 0.55f
 
             statusText.text =
                 "MIDI import failed: ${e.message}"
@@ -528,7 +779,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // TRACK CARDS
+    // COLLAPSIBLE TRACK CARDS
     // --------------------------------------------------
 
     private fun addTrackCard(
@@ -540,6 +791,39 @@ class MainActivity : ComponentActivity() {
     ) {
 
         val card = createCard()
+
+        // Once a monster is assigned, collapse the card
+        // unless the user explicitly expands it.
+        val isCollapsed =
+            assignments.containsKey(index) &&
+            index !in expandedTrackCards
+
+        if (isCollapsed) {
+
+            card.addView(
+                cardHeading(
+                    "PART ${index + 1}: ${track.name}"
+                )
+            )
+
+            card.addView(
+                detailText(
+                    "Monster: ${result.monster.name}  •  " +
+                    "Compatibility: ${result.score}%  •  " +
+                    "${track.notes.size} notes"
+                )
+            )
+
+            card.addView(
+                createButton("Expand part details") {
+                    expandedTrackCards.add(index)
+                    analyzeAllTracks()
+                }
+            )
+
+            trackContainer.addView(card)
+            return
+        }
 
         card.addView(
             cardHeading(
@@ -555,7 +839,19 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        card.addView(compatibilityIndicator(result))
+        card.addView(
+            compatibilityIndicator(result)
+        )
+
+        if (assignments.containsKey(index)) {
+
+            card.addView(
+                createButton("Collapse part details") {
+                    expandedTrackCards.remove(index)
+                    analyzeAllTracks()
+                }
+            )
+        }
 
         if (awaitingInitialApproval) {
 
@@ -587,13 +883,16 @@ class MainActivity : ComponentActivity() {
 
         if (alternatives.isNotEmpty()) {
 
-            card.addView(section("ALTERNATIVE MONSTERS"))
+            card.addView(
+                section("ALTERNATIVE MONSTERS")
+            )
 
             alternatives.take(5).forEachIndexed { rank, alternative ->
 
                 val alternativeCard = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(12, 12, 12, 12)
+
                     background = rounded(
                         Color.rgb(58, 77, 78),
                         12f
@@ -632,7 +931,10 @@ class MainActivity : ComponentActivity() {
 
                 params.bottomMargin = 10
 
-                card.addView(alternativeCard, params)
+                card.addView(
+                    alternativeCard,
+                    params
+                )
             }
         }
 
@@ -647,7 +949,9 @@ class MainActivity : ComponentActivity() {
         val card = createCard()
 
         card.addView(
-            cardHeading("PART ${index + 1}: $name")
+            cardHeading(
+                "PART ${index + 1}: $name"
+            )
         )
 
         card.addView(
@@ -679,6 +983,7 @@ class MainActivity : ComponentActivity() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 12, 12, 12)
+
             background = rounded(
                 when {
                     result.accommodatesEntireTrack ->
@@ -727,6 +1032,7 @@ class MainActivity : ComponentActivity() {
                 result.explanation
 
             textSize = 12f
+            typeface = bodyTypeface
             setTextColor(Color.WHITE)
         }
 
@@ -821,16 +1127,22 @@ class MainActivity : ComponentActivity() {
             append("Current assignment: $currentName\n\n")
             append("Proposed monster: ${result.monster.name}\n")
             append("Compatibility: ${result.score}%\n")
+
             append(
                 "Notes accommodated: " +
                 "${result.compatibleNotes}/${result.totalNotes}\n"
             )
+
             append(
                 "Octave adjustment: " +
                 "${result.octaveShift} semitones\n\n"
             )
+
             append(warning)
-            append("\n\nYour assignment will only change after approval.")
+
+            append(
+                "\n\nYour assignment will only change after approval."
+            )
         }
 
         AlertDialog.Builder(this)
@@ -851,6 +1163,14 @@ class MainActivity : ComponentActivity() {
             .setPositiveButton("Approve") { _, _ ->
 
                 assignments[trackIndex] = monsterId
+
+                // Collapse the selected part automatically.
+                expandedTrackCards.remove(trackIndex)
+
+                // A changed assignment requires new validation.
+                assignmentsValidated = false
+                exportMsmButton.isEnabled = false
+                exportMsmButton.alpha = 0.55f
 
                 Toast.makeText(
                     this,
@@ -880,6 +1200,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val minimumCompatibility = 70
+
         val missing = mutableListOf<String>()
         val belowThreshold = mutableListOf<String>()
         val passed = mutableListOf<String>()
@@ -920,28 +1241,48 @@ class MainActivity : ComponentActivity() {
             passed.isNotEmpty()
 
         val message = buildString {
-            append("Compatibility requirement: 70% or higher\n\n")
+
+            append(
+                "Compatibility requirement: 70% or higher\n\n"
+            )
+
             append("Parts passing: ${passed.size}\n\n")
 
             if (missing.isNotEmpty()) {
                 append("Unassigned parts:\n")
-                missing.forEach { append("- $it\n") }
+                missing.forEach {
+                    append("- $it\n")
+                }
                 append("\n")
             }
 
             if (belowThreshold.isNotEmpty()) {
                 append("Parts below 70%:\n")
-                belowThreshold.forEach { append("- $it\n") }
+                belowThreshold.forEach {
+                    append("- $it\n")
+                }
                 append("\n")
             }
 
             if (allPartsPassed) {
                 append("All parts meet the requirement.\n")
-                append("The composition is approved to proceed to conversion.")
+                append(
+                    "The composition is approved to proceed to conversion."
+                )
             } else {
-                append("Conversion remains locked until every part passes.")
+                append(
+                    "Conversion remains locked until every part passes."
+                )
             }
         }
+
+        // Enable export only after successful validation.
+        assignmentsValidated = allPartsPassed
+
+        exportMsmButton.isEnabled = allPartsPassed
+
+        exportMsmButton.alpha =
+            if (allPartsPassed) 1f else 0.55f
 
         showMessage(
             if (allPartsPassed) "Composition approved"
@@ -951,14 +1292,130 @@ class MainActivity : ComponentActivity() {
     }
 
     // --------------------------------------------------
-    // UI HELPERS
+    // ASSET HELPERS
+    // --------------------------------------------------
+
+    private fun assetDrawable(
+        path: String
+    ): BitmapDrawable? {
+
+        return try {
+
+            assets.open(path).use { stream ->
+
+                val bitmap = BitmapFactory.decodeStream(stream)
+                    ?: return null
+
+                BitmapDrawable(
+                    resources,
+                    bitmap
+                )
+            }
+
+        } catch (e: Exception) {
+
+            Log.w(
+                TAG,
+                "Unable to load asset: $path",
+                e
+            )
+
+            null
+        }
+    }
+
+    private fun loadTypeface(
+        path: String,
+        fallback: Typeface
+    ): Typeface {
+
+        return try {
+            Typeface.createFromAsset(
+                assets,
+                path
+            )
+        } catch (e: Exception) {
+
+            Log.w(
+                TAG,
+                "Unable to load font: $path",
+                e
+            )
+
+            fallback
+        }
+    }
+
+    // --------------------------------------------------
+    // CUSTOM MSM PROGRESS BAR
+    // --------------------------------------------------
+
+    private fun createAssetProgressBar(): ProgressBar {
+
+        val bar = ProgressBar(
+            this,
+            null,
+            android.R.attr.progressBarStyleHorizontal
+        ).apply {
+
+            max = 100
+            progress = 0
+            visibility = View.GONE
+
+            progressDrawable = LayerDrawable(
+                arrayOf(
+                    assetDrawable("images/loadbar_bg.png")
+                        ?: ColorDrawable(cardColor),
+
+                    ClipDrawable(
+                        assetDrawable("images/loadbar.png")
+                            ?: ColorDrawable(accentColor),
+                        Gravity.START,
+                        ClipDrawable.HORIZONTAL
+                    )
+                )
+            ).apply {
+
+                setId(
+                    0,
+                    android.R.id.background
+                )
+
+                setId(
+                    1,
+                    android.R.id.progress
+                )
+            }
+        }
+
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            22
+        )
+
+        params.topMargin = 8
+        params.bottomMargin = 12
+
+        bar.layoutParams = params
+
+        return bar
+    }
+
+    // --------------------------------------------------
+    // CARD HELPERS
     // --------------------------------------------------
 
     private fun createCard(): LinearLayout =
         LinearLayout(this).apply {
+
             orientation = LinearLayout.VERTICAL
             setPadding(15, 15, 15, 15)
-            background = rounded(cardColor, 18f)
+
+            background = assetDrawable("images/panel.png")
+                ?.apply {
+                    gravity = Gravity.FILL
+                }
+                ?: rounded(cardColor, 18f)
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -966,52 +1423,90 @@ class MainActivity : ComponentActivity() {
             )
 
             params.bottomMargin = 16
+
             layoutParams = params
         }
 
-    private fun section(title: String): TextView =
+    private fun section(
+        title: String
+    ): TextView =
         TextView(this).apply {
+
             text = title
             textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = headingTypeface
             setTextColor(accentColor)
             setPadding(0, 18, 0, 10)
         }
 
-    private fun cardHeading(title: String): TextView =
+    private fun cardHeading(
+        title: String
+    ): TextView =
         TextView(this).apply {
+
             text = title
             textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = headingTypeface
             setTextColor(textColor)
             setPadding(0, 4, 0, 10)
         }
 
-    private fun detailText(value: String): TextView =
+    private fun detailText(
+        value: String
+    ): TextView =
         TextView(this).apply {
+
             text = value
             textSize = 13f
+            typeface = bodyTypeface
             setTextColor(mutedColor)
             setPadding(0, 6, 0, 12)
         }
 
-    private fun createCardText(value: String): TextView =
+    private fun createCardText(
+        value: String
+    ): TextView =
         TextView(this).apply {
+
             text = value
             textSize = 14f
+            typeface = bodyTypeface
             setTextColor(textColor)
             setPadding(14, 14, 14, 14)
-            background = rounded(cardColor, 14f)
+
+            background = assetDrawable("images/panel.png")
+                ?.apply {
+                    gravity = Gravity.FILL
+                }
+                ?: rounded(cardColor, 14f)
         }
+
+    // --------------------------------------------------
+    // BUTTONS
+    // --------------------------------------------------
 
     private fun createButton(
         title: String,
         action: () -> Unit
     ): Button =
         Button(this).apply {
+
             text = title
             isAllCaps = false
-            setOnClickListener { action() }
+            typeface = bodyTypeface
+            setTextColor(Color.WHITE)
+
+            background = assetDrawable("images/button_base.png")
+                ?.apply {
+                    gravity = Gravity.FILL
+                }
+                ?: rounded(accentColor, 12f)
+
+            setPadding(14, 10, 14, 10)
+
+            setOnClickListener {
+                action()
+            }
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1019,8 +1514,13 @@ class MainActivity : ComponentActivity() {
             )
 
             params.bottomMargin = 9
+
             layoutParams = params
         }
+
+    // --------------------------------------------------
+    // GENERAL UI HELPERS
+    // --------------------------------------------------
 
     private fun rounded(
         color: Int,
@@ -1034,6 +1534,7 @@ class MainActivity : ComponentActivity() {
         title: String,
         message: String
     ) {
+
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
